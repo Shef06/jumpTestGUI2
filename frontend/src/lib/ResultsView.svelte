@@ -186,13 +186,13 @@
   }
 </script>
 
-<div class="results-container bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700">
+<div class="results-container bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700 h-full flex flex-col">
   <div class="results-header bg-gradient-to-r from-green-600 to-teal-600 px-6 py-4">
     <h2 class="text-xl font-semibold text-white">Risultati Analisi</h2>
     <p class="text-green-100 text-sm mt-1">Analisi completata con successo</p>
   </div>
   
-  <div class="results-content p-6 space-y-6 max-h-[calc(100vh-300px)] overflow-y-auto">
+  <div class="results-content p-6 space-y-6 flex-1 overflow-auto">
     <!-- Main Metrics -->
     <div class="bg-slate-900/50 rounded-xl p-5 border border-slate-700">
       <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Metriche Principali</h3>

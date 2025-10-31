@@ -16,7 +16,7 @@
   function syncStepHeight() {
     if (!videoColEl || !stepColEl) return;
     const isWide = typeof window !== 'undefined' ? window.innerWidth >= 1024 : true; // lg breakpoint
-    if ((currentStep === 3 && !showResults && isWide) || (showResults && isWide)) {
+    if (isWide) {
       const h = videoColEl.clientHeight;
       stepColEl.style.height = h ? `${h}px` : '';
     } else {
@@ -166,6 +166,15 @@
 </main>
 
 <style>
+  :global(html, body) {
+    height: 100%;
+    background-color: #0f172a; /* slate-900 */
+  }
+
+  :global(#app) {
+    min-height: 100%;
+    background-color: #0f172a; /* slate-900 */
+  }
   :global(body) {
     margin: 0;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;

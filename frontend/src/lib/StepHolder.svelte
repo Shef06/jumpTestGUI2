@@ -365,7 +365,7 @@
   }
 </script>
 
-<div class="step-container bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700">
+<div class="step-container bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700 h-full flex flex-col">
   <div class="step-header bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-4">
     <div class="flex justify-between items-center">
       <div>
@@ -386,7 +386,7 @@
     </div>
   </div>
   
-  <div class="step-content p-6 space-y-6">
+  <div class="step-content p-6 space-y-6 flex-1 overflow-auto">
     {#if showCameraModal}
       <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
         <div class="bg-slate-800 border border-slate-700 rounded-xl w-full max-w-md shadow-2xl">
