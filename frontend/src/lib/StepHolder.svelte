@@ -283,6 +283,13 @@
     } catch (error) {}
   }
 
+  async function cancelAnalysis() {
+    try {
+      await fetch('http://localhost:5000/api/analysis/stop', { method: 'POST' });
+    } catch (error) {}
+    dispatch('cancelToStep1');
+  }
+
   function goBack() {
     dispatch('goBack');
   }
@@ -609,6 +616,12 @@
                 Pausa
               </button>
             {/if}
+            <button
+              on:click={cancelAnalysis}
+              class="btn-danger flex-1"
+            >
+              Annulla
+            </button>
           </div>
         {/if}
       </div>
@@ -631,4 +644,21 @@
 </div>
 
 <style>
+  .step-content::-webkit-scrollbar {
+    width: 8px;
+  }
+  
+  .step-content::-webkit-scrollbar-track {
+    background: #1e293b;
+    border-radius: 4px;
+  }
+  
+  .step-content::-webkit-scrollbar-thumb {
+    background: #475569;
+    border-radius: 4px;
+  }
+  
+  .step-content::-webkit-scrollbar-thumb:hover {
+    background: #64748b;
+  }
 </style>

@@ -12,6 +12,7 @@
   let videoColEl;
   let stepColEl;
   let resizeObserver;
+  let fullscreenHandler;
 
   function syncStepHeight() {
     if (!videoColEl || !stepColEl) return;
@@ -60,6 +61,19 @@
       // Fallback on window resize
       window.addEventListener('resize', syncStepHeight);
     }
+    // Also handle fullscreen toggles (F11) which may not always fire ResizeObserver immediately
+    fullscreenHandler = () => {
+      // Run multiple times to account for layout settling
+      syncStepHeight();
+      setTimeout(syncStepHeight, 50);
+      setTimeout(syncStepHeight, 150);
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('fullscreenchange', fullscreenHandler);
+      document.addEventListener('webkitfullscreenchange', fullscreenHandler);
+      document.addEventListener('mozfullscreenchange', fullscreenHandler);
+      document.addEventListener('MSFullscreenChange', fullscreenHandler);
+    }
     // Initial sync
     setTimeout(syncStepHeight, 0);
   });
@@ -69,6 +83,12 @@
     if (resizeObserver && videoColEl) resizeObserver.unobserve(videoColEl);
     if (resizeObserver) resizeObserver.disconnect();
     if (typeof window !== 'undefined') window.removeEventListener('resize', syncStepHeight);
+    if (typeof document !== 'undefined' && fullscreenHandler) {
+      document.removeEventListener('fullscreenchange', fullscreenHandler);
+      document.removeEventListener('webkitfullscreenchange', fullscreenHandler);
+      document.removeEventListener('mozfullscreenchange', fullscreenHandler);
+      document.removeEventListener('MSFullscreenChange', fullscreenHandler);
+    }
   });
 
   function handleStepComplete(event) {
@@ -89,6 +109,18 @@
     }
   }
 
+  async function stopAnalysisSafely() {
+    try {
+      await fetch('http://localhost:5000/api/analysis/stop', { method: 'POST' });
+    } catch (e) {}
+  }
+
+  async function stopRecordingSafely() {
+    try {
+      await fetch('http://localhost:5000/api/recording/stop', { method: 'POST' });
+    } catch (e) {}
+  }
+
   function handleReset() {
     showResults = false;
     finalResults = null;
@@ -105,12 +137,13 @@
     });
   }
 
-  function goToPreviousStep() {
+  async function goToPreviousStep() {
     if (currentStep > 1) {
-      currentStep--;
-      syncStepHeight();
-      // Reset state when going back
-      if (currentStep === 1) {
+      // Step-specific side effects BEFORE changing step
+      if (currentStep === 2) {
+        // Going 2 -> 1: kill session-like state and stop any fetching
+        await stopAnalysisSafely();
+        await stopRecordingSafely();
         appState.set({
           isAnalyzing: false,
           isRecording: false,
@@ -121,8 +154,39 @@
           trajectoryData: [],
           velocityData: []
         });
+      } else if (currentStep === 3) {
+        // Going 3 -> 2: stop analysis playback and reset step-2 related data
+        await stopAnalysisSafely();
+        appState.update((s) => ({
+          ...s,
+          isAnalyzing: false,
+          isPaused: false,
+          realtimeData: {},
+          trajectoryData: [],
+          velocityData: []
+        }));
       }
+
+      currentStep--;
+      syncStepHeight();
     }
+  }
+
+  async function handleCancelToStep1() {
+    await stopAnalysisSafely();
+    await stopRecordingSafely();
+    currentStep = 1;
+    appState.set({
+      isAnalyzing: false,
+      isRecording: false,
+      isCalibrating: false,
+      isPaused: false,
+      videoFrame: null,
+      realtimeData: {},
+      trajectoryData: [],
+      velocityData: []
+    });
+    syncStepHeight();
   }
 
   $: syncStepHeight();
@@ -153,6 +217,7 @@
             {currentStep} 
             on:stepComplete={handleStepComplete}
             on:goBack={goToPreviousStep}
+            on:cancelToStep1={handleCancelToStep1}
           />
         {:else}
           <ResultsView 
