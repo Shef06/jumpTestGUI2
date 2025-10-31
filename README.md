@@ -247,5 +247,4 @@ Per problemi o domande, consultare la documentazione delle tecnologie utilizzate
 - [Flask Documentation](https://flask.palletsprojects.com/)
 - [Svelte Documentation](https://svelte.dev/)
 - [MediaPipe Documentation](https://google.github.io/mediapipe/)
-- [Tailwind CSS Documentation](https://tailwindcss.com/)#   j u m p T e s t G U I 2  
- 
+- [Tailwind CSS Documentation](https://tailwindcss.com/)#
