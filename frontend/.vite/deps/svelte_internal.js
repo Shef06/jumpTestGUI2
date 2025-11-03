@@ -202,8 +202,8 @@ import {
   validate_store,
   validate_void_dynamic_element,
   xlink_attr
-} from "./chunk-DH7FXECS.js";
-import "./chunk-6TR4K5L5.js";
+} from "./chunk-BTPVNTBZ.js";
+import "./chunk-AW23TMGT.js";
 export {
   HtmlTag,
   HtmlTagHydration,

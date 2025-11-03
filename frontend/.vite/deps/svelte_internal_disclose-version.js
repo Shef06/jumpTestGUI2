@@ -1,6 +1,6 @@
 import {
   PUBLIC_VERSION
-} from "./chunk-6TR4K5L5.js";
+} from "./chunk-AW23TMGT.js";
 
 // node_modules/svelte/src/runtime/internal/disclose-version/index.js
 if (typeof window !== "undefined")

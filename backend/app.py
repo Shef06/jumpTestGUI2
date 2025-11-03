@@ -78,7 +78,10 @@ def get_cameras():
 def set_camera():
     """Imposta camera index"""
     data = request.json
-    app_state['camera_index'] = data.get('index', 0)
+    try:
+        app_state['camera_index'] = int(data.get('index', 0))
+    except Exception:
+        app_state['camera_index'] = 0
     return jsonify({'success': True})
 
 
@@ -473,6 +476,14 @@ def analysis_loop():
             app_state['current_video_frame'] = base64.b64encode(buffer).decode('utf-8')
             
             time.sleep(0.01)
+
+            # Se stiamo registrando dalla webcam e il salto è terminato, ferma la registrazione
+            if app_state.get('is_recording') and app_state.get('analyzer') and app_state['analyzer'].jump_ended:
+                try:
+                    # Ferma registrazione in modo sicuro
+                    stop_recording()
+                except Exception:
+                    app_state['is_recording'] = False
     
     cap.release()
     app_state['cap'] = None

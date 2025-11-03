@@ -120,16 +120,41 @@
       await fetch('http://localhost:5000/api/settings/camera', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ index: selectedCamera })
+        body: JSON.stringify({ index: Number(selectedCamera) })
       });
       showCameraModal = false;
       // Avvia solo l'anteprima (senza registrare) con getUserMedia
       try {
+        // Chiudi eventuale stream precedente
+        try { $appState.previewStream?.getTracks()?.forEach(t => t.stop()); } catch (_) {}
+
+        // 1) Richiedi permesso minimo per sbloccare deviceId su alcuni browser
+        let tempStream = null;
+        try {
+          tempStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        } catch (_) {
+          // Se l'utente nega, falliamo subito
+        }
+
+        // 2) Elenca dispositivi e scegli per indice
         const devices = await navigator.mediaDevices.enumerateDevices();
         const videoInputs = devices.filter(d => d.kind === 'videoinput');
-        const chosen = videoInputs[selectedCamera] || videoInputs[0];
-        const constraints = chosen ? { video: { deviceId: { exact: chosen.deviceId } }, audio: false } : { video: true, audio: false };
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        const idx = Number(selectedCamera);
+        const chosen = videoInputs[idx] || videoInputs[0];
+
+        // 3) Se abbiamo un deviceId valido, apri quello, altrimenti fallback generico
+        let stream;
+        if (chosen && chosen.deviceId) {
+          stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: chosen.deviceId } }, audio: false });
+        } else {
+          stream = tempStream || (await navigator.mediaDevices.getUserMedia({ video: true, audio: false }));
+        }
+
+        // Chiudi lo stream temporaneo se ne hai aperto uno diverso
+        if (tempStream && stream !== tempStream) {
+          try { tempStream.getTracks().forEach(t => t.stop()); } catch (_) {}
+        }
+
         setPreviewStream(stream);
         setCameraPreview(true);
         setInputMode('camera');
@@ -528,6 +553,14 @@
             </svg>
             { $appState.inputMode === 'camera' ? 'Cambia Telecamera' : 'Registra Video' }
           </button>
+          {#if $appState.isCameraPreview}
+            <button
+              on:click={startCalibrationAndAnalysis}
+              class="btn-primary w-full mt-3"
+            >
+              Avvia Analisi
+            </button>
+          {/if}
           {#if $appState.isCameraPreview}
             <div class="bg-blue-500/10 border border-blue-500/50 rounded-lg p-3 text-blue-300 text-sm">
               Anteprima fotocamera attiva. Premi "Avvia Analisi" per iniziare la registrazione.
