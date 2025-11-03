@@ -195,7 +195,7 @@
 <main class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
   <!-- Header -->
   <header class="bg-slate-800/50 backdrop-blur-sm border-b border-slate-700">
-    <div class="container mx-auto px-6 py-6">
+    <div class="max-w-[1400px] mx-auto px-6 py-6">
       <h1 class="text-4xl font-bold text-white tracking-tight">
         Jump Analyzer Pro
       </h1>
@@ -203,7 +203,7 @@
   </header>
 
   <!-- Main Content -->
-  <div class="container mx-auto px-6 py-8">
+  <div class="max-w-[1400px] mx-auto px-6 py-8">
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <!-- Video Player (2/3 width on large screens) -->
       <div class="lg:col-span-2" bind:this={videoColEl}>

@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { appState, updateVideoFrame } from './stores.js';
   
   export let analysisCompleted = false;
@@ -9,6 +9,10 @@
   let infoLoaded = false;
   let errorMsg = '';
   let frameFetchTimeout;
+  let containerEl;
+  let resizeObserver;
+  let fullscreenHandler;
+  let reflowTick = 0; // bump to force layout recalculation on resize/fullscreen toggle
 
   $: videoSrc = $appState.videoFrame ? `data:image/jpeg;base64,${$appState.videoFrame}` : null;
 
@@ -72,19 +76,60 @@
       }
     }
   })();
+
+  function bumpReflow() {
+    // Force Svelte to update bindings/layout-dependent children
+    reflowTick++;
+  }
+
+  onMount(() => {
+    if (typeof window !== 'undefined' && 'ResizeObserver' in window) {
+      resizeObserver = new ResizeObserver(() => {
+        bumpReflow();
+      });
+      if (containerEl) resizeObserver.observe(containerEl);
+    } else if (typeof window !== 'undefined') {
+      window.addEventListener('resize', bumpReflow);
+    }
+
+    fullscreenHandler = () => {
+      // run a few times to handle layout settling after exit
+      bumpReflow();
+      setTimeout(bumpReflow, 50);
+      setTimeout(bumpReflow, 150);
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('fullscreenchange', fullscreenHandler);
+      document.addEventListener('webkitfullscreenchange', fullscreenHandler);
+      document.addEventListener('mozfullscreenchange', fullscreenHandler);
+      document.addEventListener('MSFullscreenChange', fullscreenHandler);
+    }
+  });
+
+  onDestroy(() => {
+    if (resizeObserver && containerEl) resizeObserver.unobserve(containerEl);
+    if (resizeObserver) resizeObserver.disconnect();
+    if (typeof window !== 'undefined') window.removeEventListener('resize', bumpReflow);
+    if (typeof document !== 'undefined' && fullscreenHandler) {
+      document.removeEventListener('fullscreenchange', fullscreenHandler);
+      document.removeEventListener('webkitfullscreenchange', fullscreenHandler);
+      document.removeEventListener('mozfullscreenchange', fullscreenHandler);
+      document.removeEventListener('MSFullscreenChange', fullscreenHandler);
+    }
+  });
 </script>
 
-<div class="video-container bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700">
+<div class="video-container bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700" bind:this={containerEl}>
   <div class="video-header bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-4">
     <h2 class="text-xl font-semibold text-white">Anteprima Video</h2>
   </div>
   
-  <div class="video-content aspect-video bg-black flex items-center justify-center relative">
+  <div class="video-content aspect-video bg-black flex items-center justify-center relative" data-reflow={reflowTick}>
     {#if videoSrc}
       <img 
         src={videoSrc} 
         alt="Video frame" 
-        class="w-full h-full object-contain"
+        class="w-full h-full max-w-full max-h-full object-contain"
       />
       
       <!-- Recording indicator -->
