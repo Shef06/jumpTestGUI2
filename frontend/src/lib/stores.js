@@ -8,7 +8,8 @@ export const appState = writable({
   videoFrame: null,
   realtimeData: {},
   trajectoryData: [],
-  velocityData: []
+  velocityData: [],
+  localVideoUrl: null
 });
 
 export function updateVideoFrame(frame) {
@@ -24,5 +25,19 @@ export function updateRealtimeData(realtime, trajectory, velocity) {
     realtimeData: realtime,
     trajectoryData: trajectory || state.trajectoryData,
     velocityData: velocity || state.velocityData
+  }));
+}
+
+export function setLocalVideoUrl(url) {
+  appState.update(state => ({
+    ...state,
+    localVideoUrl: url
+  }));
+}
+
+export function clearLocalVideoUrl() {
+  appState.update(state => ({
+    ...state,
+    localVideoUrl: null
   }));
 }

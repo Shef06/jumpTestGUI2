@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher } from 'svelte';
-  import { appState } from './stores.js';
+  import { appState, setLocalVideoUrl } from './stores.js';
   
   export let currentStep = 1;
   
@@ -27,6 +27,10 @@
   async function handleFileSelect(event) {
     selectedFile = event.target.files[0];
     if (selectedFile) {
+      try {
+        const objectUrl = URL.createObjectURL(selectedFile);
+        setLocalVideoUrl(objectUrl);
+      } catch (e) {}
       await uploadVideo();
     }
   }

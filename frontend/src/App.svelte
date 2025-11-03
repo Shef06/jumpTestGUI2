@@ -133,7 +133,8 @@
       videoFrame: null,
       realtimeData: {},
       trajectoryData: [],
-      velocityData: []
+      velocityData: [],
+      localVideoUrl: null
     });
   }
 
@@ -152,7 +153,8 @@
           videoFrame: null,
           realtimeData: {},
           trajectoryData: [],
-          velocityData: []
+        velocityData: [],
+        localVideoUrl: null
         });
       } else if (currentStep === 3) {
         // Going 3 -> 2: stop analysis playback and reset step-2 related data
@@ -163,7 +165,8 @@
           isPaused: false,
           realtimeData: {},
           trajectoryData: [],
-          velocityData: []
+        velocityData: [],
+        localVideoUrl: s.localVideoUrl // keep in step back 3->2
         }));
       }
 
@@ -184,7 +187,8 @@
       videoFrame: null,
       realtimeData: {},
       trajectoryData: [],
-      velocityData: []
+      velocityData: [],
+      localVideoUrl: null
     });
     syncStepHeight();
   }

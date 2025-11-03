@@ -11,6 +11,7 @@
   let frameFetchTimeout;
 
   $: videoSrc = $appState.videoFrame ? `data:image/jpeg;base64,${$appState.videoFrame}` : null;
+  let videoEl;
 
   async function loadVideoInfo() {
     try {
@@ -80,10 +81,17 @@
   </div>
   
   <div class="video-content aspect-video bg-black flex items-center justify-center relative">
-    {#if videoSrc}
-      <img 
-        src={videoSrc} 
-        alt="Video frame" 
+    {#if analysisCompleted && $appState.localVideoUrl}
+      <video
+        bind:this={videoEl}
+        src={$appState.localVideoUrl}
+        controls
+        class="w-full h-full object-contain"
+      ></video>
+    {:else if videoSrc}
+      <img
+        src={videoSrc}
+        alt="Video frame"
         class="w-full h-full object-contain"
       />
       
@@ -110,7 +118,7 @@
       {/if}
 
       <!-- Playback slider (only after analysis) -->
-      {#if analysisCompleted}
+      {#if analysisCompleted && !$appState.localVideoUrl}
         <div class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-slate-900/80 backdrop-blur px-4 py-3 rounded-full border border-slate-700 flex items-center gap-4">
           <input
             type="range"
