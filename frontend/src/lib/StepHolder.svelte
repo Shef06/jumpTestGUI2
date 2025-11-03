@@ -1,6 +1,6 @@
 <script>
   import { createEventDispatcher } from 'svelte';
-  import { appState, setLocalVideoUrl } from './stores.js';
+  import { appState, setLocalVideoUrl, setCameraPreview, setPreviewStream, clearPreviewStream, setInputMode } from './stores.js';
   
   export let currentStep = 1;
   
@@ -31,6 +31,7 @@
         const objectUrl = URL.createObjectURL(selectedFile);
         setLocalVideoUrl(objectUrl);
       } catch (e) {}
+      setInputMode('upload');
       await uploadVideo();
     }
   }
@@ -122,7 +123,19 @@
         body: JSON.stringify({ index: selectedCamera })
       });
       showCameraModal = false;
-      await startRecording();
+      // Avvia solo l'anteprima (senza registrare) con getUserMedia
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoInputs = devices.filter(d => d.kind === 'videoinput');
+        const chosen = videoInputs[selectedCamera] || videoInputs[0];
+        const constraints = chosen ? { video: { deviceId: { exact: chosen.deviceId } }, audio: false } : { video: true, audio: false };
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        setPreviewStream(stream);
+        setCameraPreview(true);
+        setInputMode('camera');
+      } catch (err) {
+        cameraError = 'Impossibile avviare l\'anteprima fotocamera';
+      }
     } catch (e) {
       cameraError = 'Errore impostazione fotocamera';
     }
@@ -171,6 +184,26 @@
     } catch (error) {
       errorMessage = 'Errore impostazioni';
       return;
+    }
+    // Avvia registrazione al click su Avvia Analisi e disattiva anteprima
+    if ($appState.inputMode === 'camera') {
+      try {
+        const response = await fetch('http://localhost:5000/api/recording/start', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+          appState.update(s => ({ ...s, isRecording: true }));
+          // stop local preview stream
+          try {
+            $appState.previewStream?.getTracks()?.forEach(t => t.stop());
+          } catch (_) {}
+          clearPreviewStream();
+          setCameraPreview(false);
+        }
+      } catch (e) {
+        // Se fallisce l'avvio registrazione, mostra errore e interrompi
+        errorMessage = 'Errore avvio registrazione';
+        return;
+      }
     }
     
     // Start calibration
@@ -221,6 +254,24 @@
   // Step 3: Analysis
   async function startAnalysis() {
     errorMessage = '';
+    // Se non stiamo registrando (ad es. accesso da step 3), avvia registrazione e chiudi anteprima
+    if ($appState.inputMode === 'camera' && !$appState.isRecording) {
+      try {
+        const response = await fetch('http://localhost:5000/api/recording/start', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+          appState.update(s => ({ ...s, isRecording: true }));
+          try {
+            $appState.previewStream?.getTracks()?.forEach(t => t.stop());
+          } catch (_) {}
+          clearPreviewStream();
+          setCameraPreview(false);
+        }
+      } catch (e) {
+        errorMessage = 'Errore avvio registrazione';
+        return;
+      }
+    }
     
     try {
       const response = await fetch('http://localhost:5000/api/analysis/start', {
@@ -429,7 +480,7 @@
           <div class="px-6 py-4 border-t border-slate-700 flex gap-2 justify-end">
             <button class="btn-secondary" on:click={() => (showCameraModal = false)}>Annulla</button>
             <button class="btn-primary" disabled={loadingCameras || availableCameras.length === 0} on:click={confirmCameraAndStart}>
-              Conferma e registra
+              Conferma e anteprima
             </button>
           </div>
         </div>
@@ -444,26 +495,29 @@
     <!-- Step 1: Upload/Record Video -->
     {#if currentStep === 1}
       <div class="space-y-4">
-        <h3 class="text-lg font-semibold text-white mb-4">1. Carica o Registra Video</h3>
-        
-        <label class="block">
-          <input
-            type="file"
-            accept="video/*"
-            on:change={handleFileSelect}
-            disabled={isUploading || $appState.isRecording}
-            class="hidden"
-          />
-          <div class="btn-primary cursor-pointer text-center {isUploading ? 'opacity-50' : ''}">
-            <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-            </svg>
-            {isUploading ? 'Caricamento...' : 'Carica Video'}
-          </div>
-        </label>
-        
-        <div class="text-center text-slate-400 text-sm">oppure</div>
-        
+        <h3 class="text-lg font-semibold text-white mb-4">
+          { $appState.inputMode === 'camera' ? '1. Registra Video' : '1. Carica o Registra Video' }
+        </h3>
+
+        {#if $appState.inputMode !== 'camera'}
+          <label class="block">
+            <input
+              type="file"
+              accept="video/*"
+              on:change={handleFileSelect}
+              disabled={isUploading || $appState.isRecording}
+              class="hidden"
+            />
+            <div class="btn-primary cursor-pointer text-center {isUploading ? 'opacity-50' : ''}">
+              <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+              {isUploading ? 'Caricamento...' : 'Carica Video'}
+            </div>
+          </label>
+          <div class="text-center text-slate-400 text-sm">oppure</div>
+        {/if}
+
         {#if !$appState.isRecording}
           <button
             on:click={openCameraModal}
@@ -472,8 +526,13 @@
             <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
-            Registra Video
+            { $appState.inputMode === 'camera' ? 'Cambia Telecamera' : 'Registra Video' }
           </button>
+          {#if $appState.isCameraPreview}
+            <div class="bg-blue-500/10 border border-blue-500/50 rounded-lg p-3 text-blue-300 text-sm">
+              Anteprima fotocamera attiva. Premi "Avvia Analisi" per iniziare la registrazione.
+            </div>
+          {/if}
         {:else}
           <button
             on:click={stopRecording}

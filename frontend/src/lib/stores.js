@@ -5,6 +5,9 @@ export const appState = writable({
   isRecording: false,
   isCalibrating: false,
   isPaused: false,
+  isCameraPreview: false,
+  previewStream: null,
+  inputMode: 'none', // 'none' | 'upload' | 'camera'
   videoFrame: null,
   realtimeData: {},
   trajectoryData: [],
@@ -39,5 +42,33 @@ export function clearLocalVideoUrl() {
   appState.update(state => ({
     ...state,
     localVideoUrl: null
+  }));
+}
+
+export function setCameraPreview(isOn) {
+  appState.update(state => ({
+    ...state,
+    isCameraPreview: !!isOn
+  }));
+}
+
+export function setPreviewStream(stream) {
+  appState.update(state => ({
+    ...state,
+    previewStream: stream || null
+  }));
+}
+
+export function clearPreviewStream() {
+  appState.update(state => ({
+    ...state,
+    previewStream: null
+  }));
+}
+
+export function setInputMode(mode) {
+  appState.update(state => ({
+    ...state,
+    inputMode: mode === 'upload' || mode === 'camera' ? mode : 'none'
   }));
 }

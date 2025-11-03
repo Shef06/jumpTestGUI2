@@ -84,6 +84,10 @@
   }
 
   onMount(() => {
+    // Bind local preview stream if available
+    if ($appState.isCameraPreview && $appState.previewStream && videoEl) {
+      try { videoEl.srcObject = $appState.previewStream; } catch (_) {}
+    }
     if (typeof window !== 'undefined' && 'ResizeObserver' in window) {
       resizeObserver = new ResizeObserver(() => {
         bumpReflow();
@@ -118,6 +122,10 @@
       document.removeEventListener('MSFullscreenChange', fullscreenHandler);
     }
   });
+
+  $: if ($appState.isCameraPreview && $appState.previewStream && videoEl) {
+    try { videoEl.srcObject = $appState.previewStream; } catch (e) {}
+  }
 </script>
 
 <div class="video-container bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700" bind:this={containerEl}>
@@ -126,7 +134,15 @@
   </div>
   
   <div class="video-content aspect-video bg-black flex items-center justify-center relative" data-reflow={reflowTick}>
-    {#if analysisCompleted && $appState.localVideoUrl}
+    {#if $appState.isCameraPreview && $appState.previewStream}
+      <video
+        bind:this={videoEl}
+        autoplay
+        playsinline
+        muted
+        class="w-full h-full object-contain"
+      ></video>
+    {:else if analysisCompleted && $appState.localVideoUrl}
       <video
         bind:this={videoEl}
         src={$appState.localVideoUrl}

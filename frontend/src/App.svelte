@@ -3,7 +3,7 @@
   import VideoPlayer from './lib/VideoPlayer.svelte';
   import StepHolder from './lib/StepHolder.svelte';
   import ResultsView from './lib/ResultsView.svelte';
-  import { appState, updateVideoFrame, updateRealtimeData } from './lib/stores.js';
+  import { appState, updateVideoFrame, updateRealtimeData, clearPreviewStream } from './lib/stores.js';
 
   let currentStep = 1;
   let showResults = false;
@@ -28,7 +28,7 @@
   onMount(() => {
     // Polling per aggiornamenti frame e dati
     pollInterval = setInterval(async () => {
-      if ($appState.isAnalyzing || $appState.isRecording || $appState.isCalibrating) {
+      if ($appState.isAnalyzing || $appState.isRecording || $appState.isCalibrating || $appState.isCameraPreview) {
         // Aggiorna frame video
         try {
           const frameRes = await fetch('http://localhost:5000/api/video/frame');
@@ -121,6 +121,27 @@
     } catch (e) {}
   }
 
+  async function cancelAndExit() {
+    try { await fetch('http://localhost:5000/api/analysis/stop', { method: 'POST' }); } catch (e) {}
+    try { await fetch('http://localhost:5000/api/recording/stop', { method: 'POST' }); } catch (e) {}
+    try { $appState.previewStream?.getTracks()?.forEach(t => t.stop()); } catch (e) {}
+    clearPreviewStream();
+    appState.set({
+      isAnalyzing: false,
+      isRecording: false,
+      isCalibrating: false,
+      isPaused: false,
+      isCameraPreview: false,
+      inputMode: 'none',
+      videoFrame: null,
+      realtimeData: {},
+      trajectoryData: [],
+      velocityData: [],
+      localVideoUrl: null
+    });
+    try { window.close(); } catch (e) {}
+  }
+
   function handleReset() {
     showResults = false;
     finalResults = null;
@@ -130,6 +151,8 @@
       isRecording: false,
       isCalibrating: false,
       isPaused: false,
+      isCameraPreview: false,
+      inputMode: 'none',
       videoFrame: null,
       realtimeData: {},
       trajectoryData: [],
@@ -150,6 +173,8 @@
           isRecording: false,
           isCalibrating: false,
           isPaused: false,
+          isCameraPreview: false,
+          inputMode: 'none',
           videoFrame: null,
           realtimeData: {},
           trajectoryData: [],
@@ -163,6 +188,7 @@
           ...s,
           isAnalyzing: false,
           isPaused: false,
+          isCameraPreview: s.isCameraPreview,
           realtimeData: {},
           trajectoryData: [],
         velocityData: [],
@@ -184,6 +210,8 @@
       isRecording: false,
       isCalibrating: false,
       isPaused: false,
+      isCameraPreview: false,
+      inputMode: 'none',
       videoFrame: null,
       realtimeData: {},
       trajectoryData: [],
@@ -200,9 +228,12 @@
   <!-- Header -->
   <header class="bg-slate-800/50 backdrop-blur-sm border-b border-slate-700">
     <div class="max-w-[1400px] mx-auto px-6 py-6">
-      <h1 class="text-4xl font-bold text-white tracking-tight">
-        Jump Analyzer Pro
-      </h1>
+      <div class="flex items-center justify-between">
+        <h1 class="text-4xl font-bold text-white tracking-tight">Jump Analyzer Pro</h1>
+        <button on:click={cancelAndExit} class="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded-lg font-semibold border border-red-500/50 shadow-md">
+          Annulla Analisi
+        </button>
+      </div>
     </div>
   </header>
 
