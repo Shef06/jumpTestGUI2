@@ -71,6 +71,16 @@
   
   async function startRecording() {
     try {
+      // Imposta la fotocamera selezionata lato backend solo al momento dell'analisi/registrazione
+      if (selectedCamera !== null && selectedCamera !== undefined) {
+        try {
+          await api.setCamera(Number(selectedCamera));
+        } catch (e) {
+          errorMessage = 'Errore impostazione fotocamera';
+          return;
+        }
+      }
+
       const data = await api.startRecording();
       
       if (data.success) {
@@ -119,7 +129,6 @@
       return;
     }
     try {
-      await api.setCamera(Number(selectedCamera));
       showCameraModal = false;
       // Avvia solo l'anteprima (senza registrare) con getUserMedia
       try {
@@ -135,7 +144,7 @@
         cameraError = 'Impossibile avviare l\'anteprima fotocamera';
       }
     } catch (e) {
-      cameraError = 'Errore impostazione fotocamera';
+      cameraError = 'Errore apertura anteprima';
     }
   }
   
@@ -477,12 +486,12 @@
               on:click={startRecording}
               class="btn-primary w-full mt-3"
             >
-              Avvia Analisi
+              Analizza Video
             </button>
           {/if}
           {#if $appState.isCameraPreview}
             <div class="bg-blue-500/10 border border-blue-500/50 rounded-lg p-3 text-blue-300 text-sm">
-              Anteprima fotocamera attiva. Premi "Avvia Analisi" per iniziare la registrazione, poi "Ferma Registrazione" al termine del salto.
+              Anteprima fotocamera attiva. Premi "Analizza Video" per iniziare la registrazione, poi "Ferma Registrazione" al termine del salto.
             </div>
           {/if}
         {:else}

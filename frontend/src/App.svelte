@@ -28,7 +28,7 @@
   onMount(() => {
     // Polling per aggiornamenti frame e dati
     pollInterval = setInterval(async () => {
-      if ($appState.isAnalyzing || $appState.isRecording || $appState.isCalibrating || $appState.isCameraPreview) {
+      if ($appState.isAnalyzing || $appState.isRecording || $appState.isCalibrating) {
         // Aggiorna frame video
         try {
           const frameRes = await fetch('http://localhost:5000/api/video/frame');
