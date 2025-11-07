@@ -4,6 +4,7 @@
   import StepHolder from './lib/StepHolder.svelte';
   import ResultsView from './lib/ResultsView.svelte';
   import { appState, updateVideoFrame, updateRealtimeData, clearPreviewStream } from './lib/stores.js';
+  import { getBackendUrl } from './lib/api.js';
 
   let currentStep = 1;
   let showResults = false;
@@ -31,7 +32,7 @@
       if ($appState.isAnalyzing || $appState.isRecording || $appState.isCalibrating) {
         // Aggiorna frame video
         try {
-          const frameRes = await fetch('http://localhost:5000/api/video/frame');
+          const frameRes = await fetch(`${getBackendUrl()}/api/video/frame`);
           const frameData = await frameRes.json();
           if (frameData.success && frameData.frame) {
             updateVideoFrame(frameData.frame);
@@ -41,7 +42,7 @@
         // Aggiorna dati analisi
         if ($appState.isAnalyzing) {
           try {
-            const dataRes = await fetch('http://localhost:5000/api/analysis/data');
+            const dataRes = await fetch(`${getBackendUrl()}/api/analysis/data`);
             const data = await dataRes.json();
             if (data.realtime) {
               updateRealtimeData(data.realtime, data.trajectory, data.velocity);
@@ -111,19 +112,19 @@
 
   async function stopAnalysisSafely() {
     try {
-      await fetch('http://localhost:5000/api/analysis/stop', { method: 'POST' });
+      await fetch(`${getBackendUrl()}/api/analysis/stop`, { method: 'POST' });
     } catch (e) {}
   }
 
   async function stopRecordingSafely() {
     try {
-      await fetch('http://localhost:5000/api/recording/stop', { method: 'POST' });
+      await fetch(`${getBackendUrl()}/api/recording/stop`, { method: 'POST' });
     } catch (e) {}
   }
 
   async function cancelAndExit() {
-    try { await fetch('http://localhost:5000/api/analysis/stop', { method: 'POST' }); } catch (e) {}
-    try { await fetch('http://localhost:5000/api/recording/stop', { method: 'POST' }); } catch (e) {}
+    try { await fetch(`${getBackendUrl()}/api/analysis/stop`, { method: 'POST' }); } catch (e) {}
+    try { await fetch(`${getBackendUrl()}/api/recording/stop`, { method: 'POST' }); } catch (e) {}
     try { $appState.previewStream?.getTracks()?.forEach(t => t.stop()); } catch (e) {}
     clearPreviewStream();
     appState.set({

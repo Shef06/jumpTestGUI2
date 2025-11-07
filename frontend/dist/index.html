@@ -2,13 +2,94 @@
 <html lang="it">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Jump Analyzer Pro</title>
-    <script type="module" crossorigin src="/assets/index-QhT2ki2I.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-u6erWvYx.css">
+    <script>
+      // Error handler for module loading
+      window.addEventListener('error', function(e) {
+        console.error('Errore di caricamento:', e);
+        const app = document.getElementById('app');
+        if (app && !app.querySelector('h1')) {
+          const errorMsg = e.message || e.filename || 'Errore sconosciuto';
+          app.innerHTML = `
+            <div style="display: flex; align-items: center; justify-content: center; height: 100vh; background: #0f172a; color: white; font-family: sans-serif; padding: 20px;">
+              <div style="text-align: center; max-width: 600px;">
+                <h1 style="color: #ef4444; margin-bottom: 20px;">Errore di Caricamento</h1>
+                <p style="color: #94a3b8; margin-bottom: 10px;">Impossibile caricare l'applicazione.</p>
+                <p style="color: #64748b; font-size: 12px; margin-top: 10px; word-break: break-word;">Errore: ${errorMsg}</p>
+                <p style="color: #64748b; font-size: 12px; margin-top: 10px;">File: ${e.filename || 'N/A'}</p>
+                <p style="color: #64748b; font-size: 12px; margin-top: 10px;">Apri la console del browser (F12) per maggiori dettagli.</p>
+              </div>
+            </div>
+          `;
+        }
+      }, true);
+      
+      // Handle unhandled promise rejections
+      window.addEventListener('unhandledrejection', function(e) {
+        console.error('Unhandled promise rejection:', e.reason);
+        const app = document.getElementById('app');
+        if (app && !app.querySelector('h1')) {
+          app.innerHTML = `
+            <div style="display: flex; align-items: center; justify-content: center; height: 100vh; background: #0f172a; color: white; font-family: sans-serif; padding: 20px;">
+              <div style="text-align: center; max-width: 600px;">
+                <h1 style="color: #ef4444; margin-bottom: 20px;">Errore di Caricamento</h1>
+                <p style="color: #94a3b8; margin-bottom: 10px;">Errore durante il caricamento del modulo.</p>
+                <p style="color: #64748b; font-size: 12px; margin-top: 10px; word-break: break-word;">${e.reason?.message || e.reason || 'Errore sconosciuto'}</p>
+                <p style="color: #64748b; font-size: 12px; margin-top: 10px;">Apri la console del browser (F12) per maggiori dettagli.</p>
+              </div>
+            </div>
+          `;
+        }
+      });
+      
+      // Timeout fallback - se l'app non si carica entro 10 secondi, mostra un messaggio
+      setTimeout(function() {
+        const app = document.getElementById('app');
+        const isLoading = window.__APP_LOADING__ === true;
+        const isLoaded = window.__APP_LOADED__ === true;
+        
+        if (app && isLoading && !isLoaded) {
+          const loadingMsg = app.querySelector('p');
+          if (loadingMsg && loadingMsg.textContent === 'Caricamento in corso...') {
+            app.innerHTML = `
+              <div style="display: flex; align-items: center; justify-content: center; height: 100vh; background: #0f172a; color: white; font-family: sans-serif; padding: 20px;">
+                <div style="text-align: center; max-width: 600px;">
+                  <h1 style="color: #ef4444; margin-bottom: 20px;">Timeout di Caricamento</h1>
+                  <p style="color: #94a3b8; margin-bottom: 10px;">L'applicazione sta impiegando troppo tempo per caricarsi.</p>
+                  <p style="color: #64748b; font-size: 12px; margin-top: 10px;">Possibili cause:</p>
+                  <ul style="color: #64748b; font-size: 12px; text-align: left; margin-top: 10px; list-style: none;">
+                    <li>• Il server potrebbe non essere in esecuzione</li>
+                    <li>• Problemi di connessione o CORS</li>
+                    <li>• Errori JavaScript nella console</li>
+                  </ul>
+                  <p style="color: #64748b; font-size: 12px; margin-top: 15px;">Soluzioni:</p>
+                  <ul style="color: #64748b; font-size: 12px; text-align: left; margin-top: 10px; list-style: none;">
+                    <li>• Apri la console del browser (F12) e controlla gli errori</li>
+                    <li>• Verifica che il server sia in esecuzione su http://localhost:4173</li>
+                    <li>• Ricarica la pagina (F5)</li>
+                    <li>• Verifica che tutti i file siano nella cartella dist</li>
+                  </ul>
+                </div>
+              </div>
+            `;
+          }
+        }
+      }, 10000);
+    </script>
+    
+    
+      <link rel="stylesheet" href="./bundle.css">
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div style="display: flex; align-items: center; justify-content: center; height: 100vh; background: #0f172a; color: white; font-family: sans-serif;">
+        <div style="text-align: center;">
+          <p>Caricamento in corso...</p>
+        </div>
+      </div>
+    </div>
+      <!-- Script alla fine del body per assicurare che #app esista -->
+    <script src="./bundle.js"></script>
   </body>
 </html>

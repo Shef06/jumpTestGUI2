@@ -2,7 +2,7 @@
   import { createEventDispatcher } from 'svelte';
   import { appState, setLocalVideoUrl, setCameraPreview, setPreviewStream, clearPreviewStream, setInputMode } from './stores.js';
   import { enumerateCameras, openPreviewByIndex, stopStream } from './camera.js';
-  import { api } from './api.js';
+  import { api, getBackendUrl } from './api.js';
   import CameraModal from './CameraModal.svelte';
   
   export let currentStep = 1;
@@ -49,7 +49,7 @@
     formData.append('video', selectedFile);
     
     try {
-      const response = await fetch('http://localhost:5000/api/video/upload', {
+      const response = await fetch(`${getBackendUrl()}/api/video/upload`, {
         method: 'POST',
         body: formData
       });
@@ -150,7 +150,7 @@
   
   async function stopRecording() {
     try {
-      const response = await fetch('http://localhost:5000/api/recording/stop', {
+      const response = await fetch(`${getBackendUrl()}/api/recording/stop`, {
         method: 'POST'
       });
       
@@ -306,21 +306,21 @@
   
   async function pauseAnalysis() {
     try {
-      await fetch('http://localhost:5000/api/analysis/pause', { method: 'POST' });
+      await fetch(`${getBackendUrl()}/api/analysis/pause`, { method: 'POST' });
       appState.update(s => ({ ...s, isPaused: true }));
     } catch (error) {}
   }
   
   async function resumeAnalysis() {
     try {
-      await fetch('http://localhost:5000/api/analysis/resume', { method: 'POST' });
+      await fetch(`${getBackendUrl()}/api/analysis/resume`, { method: 'POST' });
       appState.update(s => ({ ...s, isPaused: false }));
     } catch (error) {}
   }
 
   async function cancelAnalysis() {
     try {
-      await fetch('http://localhost:5000/api/analysis/stop', { method: 'POST' });
+      await fetch(`${getBackendUrl()}/api/analysis/stop`, { method: 'POST' });
     } catch (error) {}
     dispatch('cancelToStep1');
   }
@@ -334,19 +334,19 @@
     
     // Set FPS, height, and mass
     try {
-      await fetch('http://localhost:5000/api/settings/fps', {
+      await fetch(`${getBackendUrl()}/api/settings/fps`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fps })
       });
       
-      await fetch('http://localhost:5000/api/settings/height', {
+      await fetch(`${getBackendUrl()}/api/settings/height`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ height: personHeight })
       });
       
-      await fetch('http://localhost:5000/api/settings/mass', {
+      await fetch(`${getBackendUrl()}/api/settings/mass`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mass: bodyMass })
@@ -358,7 +358,7 @@
     
     // Start calibration
     try {
-      const response = await fetch('http://localhost:5000/api/calibration/start', {
+      const response = await fetch(`${getBackendUrl()}/api/calibration/start`, {
         method: 'POST'
       });
       
@@ -379,7 +379,7 @@
   async function checkCalibrationAndStartAnalysis() {
     const interval = setInterval(async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/calibration/status');
+        const response = await fetch(`${getBackendUrl()}/api/calibration/status`);
         const data = await response.json();
         
         if (data.success && !data.in_progress) {

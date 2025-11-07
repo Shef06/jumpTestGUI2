@@ -1,7 +1,20 @@
-const BASE = 'http://localhost:5000';
+// Determine backend URL based on environment
+// When opening index.html directly (file://), use absolute URL
+// When served from a server, could use relative paths (but Flask is on different port)
+export const getBackendUrl = () => {
+  // Check if we have a custom backend URL set (e.g., from environment or config)
+  if (typeof window !== 'undefined' && window.BACKEND_URL) {
+    return window.BACKEND_URL;
+  }
+  // Default to localhost:5000 (Flask backend)
+  return 'http://localhost:5000';
+};
+
+const BASE = getBackendUrl();
 
 async function jsonFetch(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, options);
+  const url = `${BASE}${path}`;
+  const res = await fetch(url, options);
   try {
     return await res.json();
   } catch (_) {

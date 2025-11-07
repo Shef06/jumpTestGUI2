@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { appState, updateVideoFrame } from './stores.js';
+  import { getBackendUrl } from './api.js';
   
   export let analysisCompleted = false;
   let totalFrames = 0;
@@ -19,7 +20,7 @@
 
   async function loadVideoInfo() {
     try {
-      const res = await fetch('http://localhost:5000/api/video/info');
+      const res = await fetch(`${getBackendUrl()}/api/video/info`);
       const data = await res.json();
       if (data && data.success) {
         totalFrames = data.total_frames || 0;
@@ -34,7 +35,7 @@
     loading = true;
     errorMsg = '';
     try {
-      const res = await fetch(`http://localhost:5000/api/video/frame_at?index=${index}`);
+      const res = await fetch(`${getBackendUrl()}/api/video/frame_at?index=${index}`);
       const data = await res.json();
       if (data && data.success) {
         currentIndex = data.index;

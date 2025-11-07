@@ -1,6 +1,7 @@
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
   import { appState } from './stores.js';
+  import { getBackendUrl } from './api.js';
   
   export let results;
   
@@ -167,7 +168,7 @@
     saveMessage = '';
     
     try {
-      const response = await fetch('http://localhost:5000/api/results/save', {
+      const response = await fetch(`${getBackendUrl()}/api/results/save`, {
         method: 'POST'
       });
       
