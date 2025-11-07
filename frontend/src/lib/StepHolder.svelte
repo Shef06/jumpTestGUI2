@@ -1,6 +1,9 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import { appState, setLocalVideoUrl, setCameraPreview, setPreviewStream, clearPreviewStream, setInputMode } from './stores.js';
+  import { enumerateCameras, openPreviewByIndex, stopStream } from './camera.js';
+  import { api } from './api.js';
+  import CameraModal from './CameraModal.svelte';
   
   export let currentStep = 1;
   
@@ -18,8 +21,8 @@
   let isSaving = false;
   // Camera selection modal state
   let showCameraModal = false;
-  let availableCameras = [];
-  let selectedCamera = null;
+  let availableCameras = []; // array di MediaDeviceInfo per videoinput
+  let selectedCamera = null; // indice nella lista availableCameras
   let loadingCameras = false;
   let cameraError = '';
   
@@ -68,14 +71,14 @@
   
   async function startRecording() {
     try {
-      const response = await fetch('http://localhost:5000/api/recording/start', {
-        method: 'POST'
-      });
-      
-      const data = await response.json();
+      const data = await api.startRecording();
       
       if (data.success) {
         appState.update(s => ({ ...s, isRecording: true }));
+        // Chiudi anteprima locale mentre registri dalla webcam
+        try { stopStream($appState.previewStream); } catch (_) {}
+        clearPreviewStream();
+        setCameraPreview(false);
       } else {
         errorMessage = data.error || 'Errore avvio registrazione';
       }
@@ -95,11 +98,10 @@
     availableCameras = [];
     selectedCamera = null;
     try {
-      const res = await fetch('http://localhost:5000/api/cameras');
-      const data = await res.json();
-      if (Array.isArray(data.cameras) && data.cameras.length > 0) {
-        availableCameras = data.cameras;
-        selectedCamera = data.cameras[0];
+      const videoInputs = await enumerateCameras();
+      if (videoInputs.length > 0) {
+        availableCameras = videoInputs;
+        selectedCamera = 0;
       } else {
         cameraError = 'Nessuna fotocamera trovata';
       }
@@ -117,43 +119,14 @@
       return;
     }
     try {
-      await fetch('http://localhost:5000/api/settings/camera', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ index: Number(selectedCamera) })
-      });
+      await api.setCamera(Number(selectedCamera));
       showCameraModal = false;
       // Avvia solo l'anteprima (senza registrare) con getUserMedia
       try {
         // Chiudi eventuale stream precedente
-        try { $appState.previewStream?.getTracks()?.forEach(t => t.stop()); } catch (_) {}
+        stopStream($appState.previewStream);
 
-        // 1) Richiedi permesso minimo per sbloccare deviceId su alcuni browser
-        let tempStream = null;
-        try {
-          tempStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        } catch (_) {
-          // Se l'utente nega, falliamo subito
-        }
-
-        // 2) Elenca dispositivi e scegli per indice
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoInputs = devices.filter(d => d.kind === 'videoinput');
-        const idx = Number(selectedCamera);
-        const chosen = videoInputs[idx] || videoInputs[0];
-
-        // 3) Se abbiamo un deviceId valido, apri quello, altrimenti fallback generico
-        let stream;
-        if (chosen && chosen.deviceId) {
-          stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: chosen.deviceId } }, audio: false });
-        } else {
-          stream = tempStream || (await navigator.mediaDevices.getUserMedia({ video: true, audio: false }));
-        }
-
-        // Chiudi lo stream temporaneo se ne hai aperto uno diverso
-        if (tempStream && stream !== tempStream) {
-          try { tempStream.getTracks().forEach(t => t.stop()); } catch (_) {}
-        }
+        const stream = await openPreviewByIndex(Number(selectedCamera), availableCameras);
 
         setPreviewStream(stream);
         setCameraPreview(true);
@@ -189,23 +162,9 @@
     
     // Set FPS
     try {
-      await fetch('http://localhost:5000/api/settings/fps', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fps })
-      });
-      
-      await fetch('http://localhost:5000/api/settings/height', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ height: personHeight })
-      });
-      
-      await fetch('http://localhost:5000/api/settings/mass', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mass: bodyMass })
-      });
+      await api.setFps(fps);
+      await api.setHeight(personHeight);
+      await api.setMass(bodyMass);
     } catch (error) {
       errorMessage = 'Errore impostazioni';
       return;
@@ -213,13 +172,12 @@
     // Avvia registrazione al click su Avvia Analisi e disattiva anteprima
     if ($appState.inputMode === 'camera') {
       try {
-        const response = await fetch('http://localhost:5000/api/recording/start', { method: 'POST' });
-        const data = await response.json();
+        const data = await api.startRecording();
         if (data.success) {
           appState.update(s => ({ ...s, isRecording: true }));
           // stop local preview stream
           try {
-            $appState.previewStream?.getTracks()?.forEach(t => t.stop());
+            stopStream($appState.previewStream);
           } catch (_) {}
           clearPreviewStream();
           setCameraPreview(false);
@@ -233,11 +191,7 @@
     
     // Start calibration
     try {
-      const response = await fetch('http://localhost:5000/api/calibration/start', {
-        method: 'POST'
-      });
-      
-      const data = await response.json();
+      const data = await api.startCalibration();
       
       if (data.success) {
         isCalibrating = true;
@@ -254,8 +208,7 @@
   async function checkCalibrationStatus() {
     const interval = setInterval(async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/calibration/status');
-        const data = await response.json();
+        const data = await api.calibrationStatus();
         
         if (data.success && !data.in_progress) {
           clearInterval(interval);
@@ -282,12 +235,11 @@
     // Se non stiamo registrando (ad es. accesso da step 3), avvia registrazione e chiudi anteprima
     if ($appState.inputMode === 'camera' && !$appState.isRecording) {
       try {
-        const response = await fetch('http://localhost:5000/api/recording/start', { method: 'POST' });
-        const data = await response.json();
+        const data = await api.startRecording();
         if (data.success) {
           appState.update(s => ({ ...s, isRecording: true }));
           try {
-            $appState.previewStream?.getTracks()?.forEach(t => t.stop());
+            stopStream($appState.previewStream);
           } catch (_) {}
           clearPreviewStream();
           setCameraPreview(false);
@@ -299,11 +251,7 @@
     }
     
     try {
-      const response = await fetch('http://localhost:5000/api/analysis/start', {
-        method: 'POST'
-      });
-      
-      const data = await response.json();
+      const data = await api.startAnalysis();
       
       if (data.success) {
         isAnalyzing = true;
@@ -320,15 +268,13 @@
   async function checkAnalysisStatus() {
     const interval = setInterval(async () => {
       try {
-        const statusResponse = await fetch('http://localhost:5000/api/analysis/status');
-        const statusData = await statusResponse.json();
+        const statusData = await api.analysisStatus();
         
         if (!statusData.is_analyzing) {
           clearInterval(interval);
           
           // Get final results
-          const resultsResponse = await fetch('http://localhost:5000/api/analysis/results');
-          const resultsData = await resultsResponse.json();
+          const resultsData = await api.analysisResults();
           
           if (resultsData.success) {
             isAnalyzing = false;
@@ -474,43 +420,16 @@
   </div>
   
   <div class="step-content p-6 space-y-6 flex-1 overflow-auto">
-    {#if showCameraModal}
-      <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-        <div class="bg-slate-800 border border-slate-700 rounded-xl w-full max-w-md shadow-2xl">
-          <div class="px-6 py-4 border-b border-slate-700 flex items-center justify-between">
-            <h4 class="text-white font-semibold">Seleziona fotocamera</h4>
-            <button class="text-slate-300 hover:text-white" on:click={() => (showCameraModal = false)}>
-              ✕
-            </button>
-          </div>
-          <div class="p-6 space-y-4">
-            {#if cameraError}
-              <div class="bg-red-500/10 border border-red-500/50 rounded-lg p-3 text-red-300 text-sm">{cameraError}</div>
-            {/if}
-            {#if loadingCameras}
-              <p class="text-slate-300">Caricamento fotocamere...</p>
-            {:else}
-              {#if availableCameras.length > 0}
-                <label for="camera-select" class="block text-sm font-medium text-slate-300 mb-2">Fotocamera</label>
-                <select id="camera-select" class="input-field" bind:value={selectedCamera}>
-                  {#each availableCameras as cam}
-                    <option value={cam}>Camera {cam}</option>
-                  {/each}
-                </select>
-              {:else}
-                <p class="text-slate-400">Nessuna fotocamera disponibile.</p>
-              {/if}
-            {/if}
-          </div>
-          <div class="px-6 py-4 border-t border-slate-700 flex gap-2 justify-end">
-            <button class="btn-secondary" on:click={() => (showCameraModal = false)}>Annulla</button>
-            <button class="btn-primary" disabled={loadingCameras || availableCameras.length === 0} on:click={confirmCameraAndStart}>
-              Conferma e anteprima
-            </button>
-          </div>
-        </div>
-      </div>
-    {/if}
+    <CameraModal
+      show={showCameraModal}
+      loading={loadingCameras}
+      cameras={availableCameras}
+      bind:selectedIndex={selectedCamera}
+      error={cameraError}
+      on:close={() => (showCameraModal = false)}
+      on:confirm={confirmCameraAndStart}
+      on:select={(e) => (selectedCamera = e.detail.index)}
+    />
     {#if errorMessage}
       <div class="bg-red-500/10 border border-red-500/50 rounded-lg p-4">
         <p class="text-red-400 text-sm">{errorMessage}</p>
@@ -555,7 +474,7 @@
           </button>
           {#if $appState.isCameraPreview}
             <button
-              on:click={startCalibrationAndAnalysis}
+              on:click={startRecording}
               class="btn-primary w-full mt-3"
             >
               Avvia Analisi
@@ -563,7 +482,7 @@
           {/if}
           {#if $appState.isCameraPreview}
             <div class="bg-blue-500/10 border border-blue-500/50 rounded-lg p-3 text-blue-300 text-sm">
-              Anteprima fotocamera attiva. Premi "Avvia Analisi" per iniziare la registrazione.
+              Anteprima fotocamera attiva. Premi "Avvia Analisi" per iniziare la registrazione, poi "Ferma Registrazione" al termine del salto.
             </div>
           {/if}
         {:else}
