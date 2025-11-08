@@ -3,7 +3,7 @@ Flask Backend per Jump Analyzer Pro
 API REST per analisi salto in alto
 """
 
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 import cv2
 import mediapipe as mp
@@ -15,6 +15,8 @@ from datetime import datetime
 from werkzeug.utils import secure_filename
 import threading
 import json
+import webbrowser
+from pathlib import Path
 from contour import get_head_y
 from jump_analyzer import JumpAnalyzer
 
@@ -667,5 +669,83 @@ def video_frame_at():
     })
 
 
+# Percorso alla cartella frontend/dist
+FRONTEND_DIST = Path(__file__).parent.parent / 'frontend' / 'dist'
+
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_frontend(path):
+    """Serve i file statici del frontend (esclude le route API)"""
+    # Non servire il frontend per le route API
+    if path.startswith('api/'):
+        return jsonify({'error': 'Route API non trovata'}), 404
+    
+    if path == '' or path == '/':
+        # Serve index.html per la root
+        if (FRONTEND_DIST / 'index.html').exists():
+            return send_from_directory(str(FRONTEND_DIST), 'index.html')
+        else:
+            return f'''
+            <html>
+                <head><title>Frontend non trovato</title></head>
+                <body style="font-family: Arial; padding: 40px; text-align: center;">
+                    <h1>Frontend non trovato</h1>
+                    <p>Il frontend non è stato compilato.</p>
+                    <p>Esegui i seguenti comandi:</p>
+                    <pre style="background: #f0f0f0; padding: 20px; display: inline-block; text-align: left;">
+cd frontend
+npm install
+npm run build
+                    </pre>
+                    <p>Poi riavvia il backend.</p>
+                </body>
+            </html>
+            ''', 404
+    
+    # Serve file statici (JS, CSS, immagini, ecc.)
+    file_path = FRONTEND_DIST / path
+    if file_path.exists() and file_path.is_file():
+        return send_from_directory(str(FRONTEND_DIST), path)
+    
+    # Se il file non esiste, prova a servire index.html (per SPA routing)
+    if (FRONTEND_DIST / 'index.html').exists():
+        return send_from_directory(str(FRONTEND_DIST), 'index.html')
+    
+    return jsonify({'error': 'File non trovato'}), 404
+
+
+def open_browser():
+    """Apre il browser dopo un breve delay"""
+    time.sleep(1.5)  # Aspetta che il server sia pronto
+    webbrowser.open('http://localhost:5000')
+
+
 if __name__ == '__main__':
+    import webbrowser
+    import threading
+    from pathlib import Path
+    
+    # Determina il percorso assoluto del file index.html
+    backend_dir = Path(__file__).parent
+    frontend_dist = backend_dir.parent / 'frontend' / 'dist' / 'index.html'
+    
+    # Funzione per aprire il browser dopo un breve delay
+    def open_browser():
+        import time
+        time.sleep(1.5)  # Attendi che il server sia avviato
+        if frontend_dist.exists():
+            file_url = frontend_dist.as_uri()
+            print(f"\n🌐 Apertura browser: {file_url}\n")
+            webbrowser.open(file_url)
+        else:
+            print(f"\n⚠️  File index.html non trovato in: {frontend_dist}")
+            print("   Esegui prima 'npm run build' nella cartella frontend\n")
+    
+    # Avvia il thread per aprire il browser
+    threading.Thread(target=open_browser, daemon=True).start()
+    
+    print("🚀 Avvio server Flask su http://0.0.0.0:5000")
+    print("   Il browser si aprirà automaticamente tra pochi secondi...")
+    
     app.run(debug=False, host='0.0.0.0', port=5000, threaded=True)
