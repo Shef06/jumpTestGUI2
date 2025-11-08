@@ -14,10 +14,16 @@
   let stepColEl;
   let resizeObserver;
   let fullscreenHandler;
+  let resizeDebounce;
+
+  // Polling ottimizzato con rate adaptativo
+  let pollRate = 150; // Aumentato da 100ms a 150ms
+  let consecutiveErrors = 0;
+  let maxPollRate = 500;
 
   function syncStepHeight() {
     if (!videoColEl || !stepColEl) return;
-    const isWide = typeof window !== 'undefined' ? window.innerWidth >= 1024 : true; // lg breakpoint
+    const isWide = typeof window !== 'undefined' ? window.innerWidth >= 1024 : true;
     if (isWide) {
       const h = videoColEl.clientHeight;
       stepColEl.style.height = h ? `${h}px` : '';
@@ -26,64 +32,95 @@
     }
   }
 
-  onMount(() => {
-    // Polling per aggiornamenti frame e dati
-    pollInterval = setInterval(async () => {
+  function debouncedSyncHeight() {
+    if (resizeDebounce) clearTimeout(resizeDebounce);
+    resizeDebounce = setTimeout(syncStepHeight, 100);
+  }
+
+  async function adaptivePoll() {
+    if (!$appState.isAnalyzing && !$appState.isRecording && !$appState.isCalibrating) {
+      // Non serve polling se non ci sono processi attivi
+      return;
+    }
+
+    try {
+      // Fetch frame solo se necessario
       if ($appState.isAnalyzing || $appState.isRecording || $appState.isCalibrating) {
-        // Aggiorna frame video
-        try {
-          const frameRes = await fetch(`${getBackendUrl()}/api/video/frame`);
+        const frameRes = await fetch(`${getBackendUrl()}/api/video/frame`, {
+          signal: AbortSignal.timeout(1000) // Timeout 1s
+        });
+        
+        if (frameRes.ok) {
           const frameData = await frameRes.json();
           if (frameData.success && frameData.frame) {
             updateVideoFrame(frameData.frame);
           }
-        } catch (e) {}
-
-        // Aggiorna dati analisi
-        if ($appState.isAnalyzing) {
-          try {
-            const dataRes = await fetch(`${getBackendUrl()}/api/analysis/data`);
-            const data = await dataRes.json();
-            if (data.realtime) {
-              updateRealtimeData(data.realtime, data.trajectory, data.velocity);
-            }
-          } catch (e) {}
         }
       }
-    }, 100);
 
-    // Observe video column size to sync step height
+      // Fetch dati analisi solo durante analisi
+      if ($appState.isAnalyzing) {
+        const dataRes = await fetch(`${getBackendUrl()}/api/analysis/data`, {
+          signal: AbortSignal.timeout(1000)
+        });
+        
+        if (dataRes.ok) {
+          const data = await dataRes.json();
+          if (data.realtime) {
+            updateRealtimeData(data.realtime, data.trajectory, data.velocity);
+          }
+        }
+      }
+
+      // Success: reduce poll rate se era stato aumentato
+      if (consecutiveErrors > 0) {
+        consecutiveErrors = Math.max(0, consecutiveErrors - 1);
+        pollRate = Math.max(150, pollRate - 50);
+      }
+
+    } catch (e) {
+      // Error: increase poll rate per ridurre carico
+      consecutiveErrors++;
+      if (consecutiveErrors > 3) {
+        pollRate = Math.min(maxPollRate, pollRate + 50);
+      }
+    }
+  }
+
+  onMount(() => {
+    // Polling con rate adaptativo
+    pollInterval = setInterval(adaptivePoll, pollRate);
+
+    // Observe video column size
     if (window && 'ResizeObserver' in window) {
-      resizeObserver = new ResizeObserver(() => {
-        syncStepHeight();
-      });
+      resizeObserver = new ResizeObserver(debouncedSyncHeight);
       if (videoColEl) resizeObserver.observe(videoColEl);
     } else {
-      // Fallback on window resize
-      window.addEventListener('resize', syncStepHeight);
+      window?.addEventListener('resize', debouncedSyncHeight);
     }
-    // Also handle fullscreen toggles (F11) which may not always fire ResizeObserver immediately
+
+    // Fullscreen handler con debounce
     fullscreenHandler = () => {
-      // Run multiple times to account for layout settling
-      syncStepHeight();
-      setTimeout(syncStepHeight, 50);
+      debouncedSyncHeight();
       setTimeout(syncStepHeight, 150);
     };
+    
     if (typeof document !== 'undefined') {
       document.addEventListener('fullscreenchange', fullscreenHandler);
       document.addEventListener('webkitfullscreenchange', fullscreenHandler);
       document.addEventListener('mozfullscreenchange', fullscreenHandler);
       document.addEventListener('MSFullscreenChange', fullscreenHandler);
     }
-    // Initial sync
+
     setTimeout(syncStepHeight, 0);
   });
 
   onDestroy(() => {
     if (pollInterval) clearInterval(pollInterval);
+    if (resizeDebounce) clearTimeout(resizeDebounce);
     if (resizeObserver && videoColEl) resizeObserver.unobserve(videoColEl);
     if (resizeObserver) resizeObserver.disconnect();
-    if (typeof window !== 'undefined') window.removeEventListener('resize', syncStepHeight);
+    if (typeof window !== 'undefined') window.removeEventListener('resize', debouncedSyncHeight);
     if (typeof document !== 'undefined' && fullscreenHandler) {
       document.removeEventListener('fullscreenchange', fullscreenHandler);
       document.removeEventListener('webkitfullscreenchange', fullscreenHandler);
@@ -92,41 +129,56 @@
     }
   });
 
+  // Update poll rate quando cambia
+  $: if (pollInterval) {
+    clearInterval(pollInterval);
+    pollInterval = setInterval(adaptivePoll, pollRate);
+  }
+
   function handleStepComplete(event) {
     const { step, data } = event.detail;
     
     if (step === 1) {
-      // Video caricato o registrato
       currentStep = 2;
     } else if (step === 2) {
-      // Calibrazione completata
       currentStep = 3;
       syncStepHeight();
     } else if (step === 3) {
-      // Analisi completata
       finalResults = data;
       showResults = true;
       syncStepHeight();
     }
   }
 
-  async function stopAnalysisSafely() {
-    try {
-      await fetch(`${getBackendUrl()}/api/analysis/stop`, { method: 'POST' });
-    } catch (e) {}
-  }
+  async function stopProcessesSafely() {
+    const promises = [];
+    
+    if ($appState.isAnalyzing) {
+      promises.push(
+        fetch(`${getBackendUrl()}/api/analysis/stop`, { method: 'POST' })
+          .catch(() => {})
+      );
+    }
+    
+    if ($appState.isRecording) {
+      promises.push(
+        fetch(`${getBackendUrl()}/api/recording/stop`, { method: 'POST' })
+          .catch(() => {})
+      );
+    }
 
-  async function stopRecordingSafely() {
-    try {
-      await fetch(`${getBackendUrl()}/api/recording/stop`, { method: 'POST' });
-    } catch (e) {}
+    await Promise.all(promises);
   }
 
   async function cancelAndExit() {
-    try { await fetch(`${getBackendUrl()}/api/analysis/stop`, { method: 'POST' }); } catch (e) {}
-    try { await fetch(`${getBackendUrl()}/api/recording/stop`, { method: 'POST' }); } catch (e) {}
-    try { $appState.previewStream?.getTracks()?.forEach(t => t.stop()); } catch (e) {}
+    await stopProcessesSafely();
+    
+    try { 
+      $appState.previewStream?.getTracks()?.forEach(t => t.stop()); 
+    } catch (e) {}
+    
     clearPreviewStream();
+    
     appState.set({
       isAnalyzing: false,
       isRecording: false,
@@ -140,6 +192,7 @@
       velocityData: [],
       localVideoUrl: null
     });
+    
     try { window.close(); } catch (e) {}
   }
 
@@ -147,6 +200,9 @@
     showResults = false;
     finalResults = null;
     currentStep = 1;
+    consecutiveErrors = 0;
+    pollRate = 150;
+    
     appState.set({
       isAnalyzing: false,
       isRecording: false,
@@ -164,11 +220,8 @@
 
   async function goToPreviousStep() {
     if (currentStep > 1) {
-      // Step-specific side effects BEFORE changing step
       if (currentStep === 2) {
-        // Going 2 -> 1: kill session-like state and stop any fetching
-        await stopAnalysisSafely();
-        await stopRecordingSafely();
+        await stopProcessesSafely();
         appState.set({
           isAnalyzing: false,
           isRecording: false,
@@ -179,12 +232,11 @@
           videoFrame: null,
           realtimeData: {},
           trajectoryData: [],
-        velocityData: [],
-        localVideoUrl: null
+          velocityData: [],
+          localVideoUrl: null
         });
       } else if (currentStep === 3) {
-        // Going 3 -> 2: stop analysis playback and reset step-2 related data
-        await stopAnalysisSafely();
+        await stopProcessesSafely();
         appState.update((s) => ({
           ...s,
           isAnalyzing: false,
@@ -192,8 +244,8 @@
           isCameraPreview: s.isCameraPreview,
           realtimeData: {},
           trajectoryData: [],
-        velocityData: [],
-        localVideoUrl: s.localVideoUrl // keep in step back 3->2
+          velocityData: [],
+          localVideoUrl: s.localVideoUrl
         }));
       }
 
@@ -203,9 +255,9 @@
   }
 
   async function handleCancelToStep1() {
-    await stopAnalysisSafely();
-    await stopRecordingSafely();
+    await stopProcessesSafely();
     currentStep = 1;
+    
     appState.set({
       isAnalyzing: false,
       isRecording: false,
@@ -219,34 +271,29 @@
       velocityData: [],
       localVideoUrl: null
     });
+    
     syncStepHeight();
   }
-
-  $: syncStepHeight();
 </script>
 
 <main class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-  <!-- Header -->
   <header class="bg-slate-800/50 backdrop-blur-sm border-b border-slate-700">
     <div class="max-w-[1400px] mx-auto px-6 py-6">
       <div class="flex items-center justify-between">
         <h1 class="text-4xl font-bold text-white tracking-tight">Jump Analyzer Pro</h1>
-        <button on:click={cancelAndExit} class="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded-lg font-semibold border border-red-500/50 shadow-md">
+        <button on:click={cancelAndExit} class="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded-lg font-semibold border border-red-500/50 shadow-md transition-colors">
           Annulla Analisi
         </button>
       </div>
     </div>
   </header>
 
-  <!-- Main Content -->
   <div class="max-w-[1400px] mx-auto px-6 py-8">
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <!-- Video Player (2/3 width on large screens) -->
       <div class="lg:col-span-2" bind:this={videoColEl}>
         <VideoPlayer analysisCompleted={showResults} />
       </div>
 
-      <!-- Step Holder (1/3 width on large screens) -->
       <div class="lg:col-span-1" bind:this={stepColEl}>
         {#if !showResults}
           <StepHolder 
@@ -269,13 +316,14 @@
 <style>
   :global(html, body) {
     height: 100%;
-    background-color: #0f172a; /* slate-900 */
+    background-color: #0f172a;
   }
 
   :global(#app) {
     min-height: 100%;
-    background-color: #0f172a; /* slate-900 */
+    background-color: #0f172a;
   }
+  
   :global(body) {
     margin: 0;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;

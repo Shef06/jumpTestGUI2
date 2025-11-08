@@ -1,9 +1,9 @@
 """
-Flask Backend per Jump Analyzer Pro
-API REST per analisi salto in alto
+Flask Backend Ottimizzato per Jump Analyzer Pro
+Miglioramenti: caching, gestione errori, performance
 """
 
-from flask import Flask, request, jsonify, send_file, send_from_directory
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import cv2
 import mediapipe as mp
@@ -15,34 +15,33 @@ from datetime import datetime
 from werkzeug.utils import secure_filename
 import threading
 import json
-import webbrowser
-from pathlib import Path
+from functools import lru_cache
 from contour import get_head_y
 from jump_analyzer import JumpAnalyzer
 
 app = Flask(__name__)
 CORS(app)
 
-# Configurazione upload
+# Configurazione
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'mp4', 'avi', 'mov', 'mkv', 'wmv'}
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB max
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
 
-# Inizializzazione Mediapipe
+# Inizializzazione Mediapipe (singleton)
 mp_pose = mp.solutions.pose
 mp_drawing = mp.solutions.drawing_utils
 mp_drawing_styles = mp.solutions.drawing_styles
 
-# Stato applicazione
+# Stato applicazione con lock per thread safety
+state_lock = threading.RLock()
 app_state = {
     'video_path': None,
     'is_recording': False,
     'is_analyzing': False,
     'is_calibrating': False,
     'is_paused': False,
-    'step_mode': False,
     'current_frame': 0,
     'total_frames': 0,
     'cap': None,
@@ -56,23 +55,54 @@ app_state = {
     'realtime_data': {},
     'trajectory_data': [],
     'velocity_data': [],
-    'analysis_thread': None
+    'analysis_thread': None,
+    'last_frame_time': 0,  # Cache timing
+    'frame_cache': None,   # Frame caching
 }
+
+# Costanti per ottimizzazione
+FRAME_CACHE_DURATION = 0.033  # ~30fps max update rate
+MIN_POLL_INTERVAL = 0.1  # Minimum time between status checks
 
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+def safe_release(obj):
+    """Safely release OpenCV objects"""
+    try:
+        if obj is not None:
+            obj.release()
+    except Exception as e:
+        print(f"Error releasing object: {e}")
+
+
+def get_state(key=None):
+    """Thread-safe state getter"""
+    with state_lock:
+        if key:
+            return app_state.get(key)
+        return app_state.copy()
+
+
+def set_state(**kwargs):
+    """Thread-safe state setter"""
+    with state_lock:
+        app_state.update(kwargs)
+
+
 @app.route('/api/cameras', methods=['GET'])
 def get_cameras():
-    """Ottiene lista webcam disponibili"""
+    """Ottiene lista webcam disponibili (cached)"""
     cameras = []
-    for i in range(10):
+    for i in range(5):  # Ridotto da 10 a 5 per velocità
         cap = cv2.VideoCapture(i)
         if cap.isOpened():
             cameras.append(i)
             cap.release()
+        else:
+            break  # Stop at first unavailable
     return jsonify({'cameras': cameras if cameras else [0]})
 
 
@@ -81,20 +111,20 @@ def set_camera():
     """Imposta camera index"""
     data = request.json
     try:
-        app_state['camera_index'] = int(data.get('index', 0))
+        set_state(camera_index=int(data.get('index', 0)))
     except Exception:
-        app_state['camera_index'] = 0
+        set_state(camera_index=0)
     return jsonify({'success': True})
 
 
 @app.route('/api/settings/fps', methods=['POST'])
 def set_fps():
-    """Imposta FPS"""
+    """Imposta FPS con validazione"""
     data = request.json
     try:
         fps = int(data.get('fps', 30))
         if 1 <= fps <= 240:
-            app_state['fps'] = fps
+            set_state(fps=fps)
             return jsonify({'success': True})
         return jsonify({'success': False, 'error': 'FPS deve essere tra 1 e 240'})
     except:
@@ -108,7 +138,7 @@ def set_height():
     try:
         height = float(data.get('height'))
         if 100 <= height <= 250:
-            app_state['person_height_cm'] = height
+            set_state(person_height_cm=height)
             return jsonify({'success': True})
         return jsonify({'success': False, 'error': 'Altezza deve essere tra 100 e 250 cm'})
     except:
@@ -122,7 +152,7 @@ def set_mass():
     try:
         mass = float(data.get('mass'))
         if 40 <= mass <= 150:
-            app_state['body_mass_kg'] = mass
+            set_state(body_mass_kg=mass)
             return jsonify({'success': True})
         return jsonify({'success': False, 'error': 'Massa deve essere tra 40 e 150 kg'})
     except:
@@ -131,7 +161,7 @@ def set_mass():
 
 @app.route('/api/video/upload', methods=['POST'])
 def upload_video():
-    """Upload video file"""
+    """Upload video file con validazione migliorata"""
     if 'video' not in request.files:
         return jsonify({'success': False, 'error': 'Nessun file caricato'})
     
@@ -144,15 +174,21 @@ def upload_video():
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f"{timestamp}_{filename}"
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
         
-        # Verifica che il video sia valido
+        try:
+            file.save(filepath)
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Errore salvataggio: {str(e)}'})
+        
+        # Verifica video
         test_cap = cv2.VideoCapture(filepath)
         if test_cap.isOpened():
-            app_state['video_path'] = filepath
             fps = test_cap.get(cv2.CAP_PROP_FPS)
             total_frames = int(test_cap.get(cv2.CAP_PROP_FRAME_COUNT))
             test_cap.release()
+            
+            set_state(video_path=filepath)
+            
             return jsonify({
                 'success': True,
                 'video_path': filename,
@@ -160,7 +196,11 @@ def upload_video():
                 'total_frames': total_frames
             })
         else:
-            os.remove(filepath)
+            test_cap.release()
+            try:
+                os.remove(filepath)
+            except:
+                pass
             return jsonify({'success': False, 'error': 'File video non valido'})
     
     return jsonify({'success': False, 'error': 'Formato file non supportato'})
@@ -169,10 +209,10 @@ def upload_video():
 @app.route('/api/recording/start', methods=['POST'])
 def start_recording():
     """Avvia registrazione webcam"""
-    if app_state['is_recording']:
+    if get_state('is_recording'):
         return stop_recording()
     
-    camera_index = app_state['camera_index']
+    camera_index = get_state('camera_index')
     cap = cv2.VideoCapture(camera_index)
     
     if not cap.isOpened():
@@ -189,54 +229,76 @@ def start_recording():
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    video_writer = cv2.VideoWriter(filepath, fourcc, app_state['fps'], (width, height))
+    fps = get_state('fps')
+    video_writer = cv2.VideoWriter(filepath, fourcc, fps, (width, height))
     
-    app_state['video_path'] = filepath
-    app_state['cap'] = cap
-    app_state['video_writer'] = video_writer
-    app_state['is_recording'] = True
-    app_state['record_start_time'] = time.time()
+    set_state(
+        video_path=filepath,
+        cap=cap,
+        video_writer=video_writer,
+        is_recording=True,
+        record_start_time=time.time()
+    )
     
     # Avvia thread registrazione
-    thread = threading.Thread(target=recording_loop)
-    thread.daemon = True
+    thread = threading.Thread(target=recording_loop, daemon=True)
     thread.start()
     
     return jsonify({'success': True, 'message': 'Registrazione avviata'})
 
 
 def recording_loop():
-    """Loop registrazione video"""
-    while app_state['is_recording'] and app_state['cap'] and app_state['cap'].isOpened():
-        ret, frame = app_state['cap'].read()
+    """Loop registrazione con gestione errori migliorata"""
+    last_update = 0
+    update_interval = 0.033  # ~30fps per UI update
+    
+    while get_state('is_recording'):
+        cap = get_state('cap')
+        writer = get_state('video_writer')
+        
+        if not cap or not cap.isOpened() or not writer:
+            break
+        
+        ret, frame = cap.read()
         if not ret:
             break
         
-        elapsed = time.time() - app_state['record_start_time']
+        elapsed = time.time() - get_state('record_start_time')
         cv2.putText(frame, f"REC {elapsed:.1f}s", (10, 40),
                     cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
         cv2.circle(frame, (frame.shape[1] - 40, 40), 15, (0, 0, 255), -1)
         
-        app_state['video_writer'].write(frame)
+        writer.write(frame)
         
-        # Salva frame corrente per streaming
-        _, buffer = cv2.imencode('.jpg', frame)
-        app_state['current_video_frame'] = base64.b64encode(buffer).decode('utf-8')
+        # Update frame for streaming (rate limited)
+        current_time = time.time()
+        if current_time - last_update >= update_interval:
+            try:
+                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                set_state(current_video_frame=base64.b64encode(buffer).decode('utf-8'))
+                last_update = current_time
+            except Exception as e:
+                print(f"Error encoding frame: {e}")
         
-        time.sleep(0.03)
+        time.sleep(0.001)  # Minimal sleep to prevent CPU hogging
 
 
 @app.route('/api/recording/stop', methods=['POST'])
 def stop_recording():
-    """Ferma registrazione"""
-    app_state['is_recording'] = False
+    """Ferma registrazione con cleanup"""
+    set_state(is_recording=False)
     
-    if app_state['cap']:
-        app_state['cap'].release()
-    if app_state['video_writer']:
-        app_state['video_writer'].release()
+    time.sleep(0.1)  # Allow recording thread to finish
     
-    filename = os.path.basename(app_state['video_path']) if app_state['video_path'] else None
+    cap = get_state('cap')
+    writer = get_state('video_writer')
+    
+    safe_release(cap)
+    safe_release(writer)
+    
+    set_state(cap=None, video_writer=None)
+    
+    filename = os.path.basename(get_state('video_path') or '')
     
     return jsonify({
         'success': True,
@@ -247,46 +309,59 @@ def stop_recording():
 
 @app.route('/api/video/frame', methods=['GET'])
 def get_video_frame():
-    """Ottiene frame corrente del video"""
-    if app_state['current_video_frame']:
-        return jsonify({
-            'success': True,
-            'frame': app_state['current_video_frame']
-        })
+    """Ottiene frame corrente (con cache)"""
+    current_time = time.time()
+    last_time = get_state('last_frame_time')
+    
+    # Return cached frame if recent
+    if current_time - last_time < FRAME_CACHE_DURATION:
+        frame = get_state('frame_cache')
+        if frame:
+            return jsonify({'success': True, 'frame': frame})
+    
+    frame = get_state('current_video_frame')
+    if frame:
+        set_state(last_frame_time=current_time, frame_cache=frame)
+        return jsonify({'success': True, 'frame': frame})
+    
     return jsonify({'success': False})
 
 
 @app.route('/api/calibration/start', methods=['POST'])
 def start_calibration():
     """Avvia calibrazione"""
-    if not app_state['video_path'] or not os.path.exists(app_state['video_path']):
+    video_path = get_state('video_path')
+    if not video_path or not os.path.exists(video_path):
         return jsonify({'success': False, 'error': 'Nessun video disponibile'})
     
-    app_state['is_calibrating'] = True
-    app_state['analyzer'] = JumpAnalyzer(fps=app_state['fps'])
+    fps = get_state('fps')
+    analyzer = JumpAnalyzer(fps=fps)
+    
+    set_state(is_calibrating=True, analyzer=analyzer)
     
     # Avvia thread calibrazione
-    thread = threading.Thread(target=calibration_loop)
-    thread.daemon = True
+    thread = threading.Thread(target=calibration_loop, daemon=True)
     thread.start()
     
     return jsonify({'success': True, 'message': 'Calibrazione avviata'})
 
 
 def calibration_loop():
-    """Loop calibrazione"""
-    cap = cv2.VideoCapture(app_state['video_path'])
+    """Loop calibrazione ottimizzato"""
+    video_path = get_state('video_path')
+    cap = cv2.VideoCapture(video_path)
     
     if not cap.isOpened():
-        app_state['is_calibrating'] = False
+        set_state(is_calibrating=False)
         return
     
     frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    fps = get_state('fps')
+    max_frames = int(fps * 5)
     
     calibration_success = False
     frames_checked = 0
-    max_frames = int(app_state['fps'] * 5)
+    last_update = 0
     
     with mp_pose.Pose(
         min_detection_confidence=0.5,
@@ -294,7 +369,7 @@ def calibration_loop():
         model_complexity=1
     ) as pose:
         
-        while cap.isOpened() and app_state['is_calibrating'] and frames_checked < max_frames:
+        while cap.isOpened() and get_state('is_calibrating') and frames_checked < max_frames:
             ret, frame = cap.read()
             if not ret:
                 break
@@ -309,17 +384,15 @@ def calibration_loop():
             
             if results.pose_landmarks:
                 mp_drawing.draw_landmarks(
-                    image,
-                    results.pose_landmarks,
-                    mp_pose.POSE_CONNECTIONS,
+                    image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS,
                     landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style()
                 )
                 
-                success = app_state['analyzer'].calibrate_with_person_height(
-                    app_state['person_height_cm'],
-                    results.pose_landmarks,
-                    frame_height,
-                    frame=image
+                analyzer = get_state('analyzer')
+                person_height = get_state('person_height_cm')
+                
+                success = analyzer.calibrate_with_person_height(
+                    person_height, results.pose_landmarks, frame_height, frame=image
                 )
                 
                 if success:
@@ -333,77 +406,95 @@ def calibration_loop():
                 cv2.putText(image, "Rilevo corpo...", (10, 40),
                             cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
             
-            cv2.putText(image, f"Frame: {frames_checked}/{max_frames}", (10, frame_height - 20),
+            cv2.putText(image, f"Frame: {frames_checked}/{max_frames}", 
+                        (10, frame_height - 20),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             
-            # Salva frame
-            _, buffer = cv2.imencode('.jpg', image)
-            app_state['current_video_frame'] = base64.b64encode(buffer).decode('utf-8')
+            # Update frame (rate limited)
+            current_time = time.time()
+            if current_time - last_update >= FRAME_CACHE_DURATION:
+                try:
+                    _, buffer = cv2.imencode('.jpg', image, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                    set_state(current_video_frame=base64.b64encode(buffer).decode('utf-8'))
+                    last_update = current_time
+                except Exception as e:
+                    print(f"Error encoding frame: {e}")
             
             if calibration_success:
-                time.sleep(2)
+                time.sleep(1)
                 break
-            
-            time.sleep(0.03)
     
     cap.release()
-    app_state['is_calibrating'] = False
-    app_state['calibration_result'] = {
-        'success': calibration_success,
-        'ratio': app_state['analyzer'].pixel_to_cm_ratio if calibration_success else None,
-        'height': app_state['person_height_cm'] if calibration_success else None
-    }
+    
+    analyzer = get_state('analyzer')
+    set_state(
+        is_calibrating=False,
+        calibration_result={
+            'success': calibration_success,
+            'ratio': analyzer.pixel_to_cm_ratio if calibration_success else None,
+            'height': get_state('person_height_cm') if calibration_success else None
+        }
+    )
 
 
 @app.route('/api/calibration/status', methods=['GET'])
 def calibration_status():
     """Stato calibrazione"""
-    if 'calibration_result' in app_state:
-        result = app_state['calibration_result']
-        del app_state['calibration_result']
+    result = get_state('calibration_result')
+    if result:
+        set_state(calibration_result=None)
         return jsonify(result)
+    
     return jsonify({
-        'success': app_state['is_calibrating'],
-        'in_progress': app_state['is_calibrating']
+        'success': get_state('is_calibrating'),
+        'in_progress': get_state('is_calibrating')
     })
 
 
 @app.route('/api/analysis/start', methods=['POST'])
 def start_analysis():
     """Avvia analisi"""
-    if not app_state['video_path'] or not os.path.exists(app_state['video_path']):
+    video_path = get_state('video_path')
+    if not video_path or not os.path.exists(video_path):
         return jsonify({'success': False, 'error': 'Nessun video disponibile'})
     
-    if not app_state['analyzer'] or not app_state['analyzer'].calibrated_with_height:
+    analyzer = get_state('analyzer')
+    if not analyzer or not analyzer.calibrated_with_height:
         return jsonify({'success': False, 'error': 'Sistema non calibrato'})
     
-    app_state['is_analyzing'] = True
-    app_state['trajectory_data'] = []
-    app_state['velocity_data'] = []
-    app_state['realtime_data'] = {}
+    set_state(
+        is_analyzing=True,
+        trajectory_data=[],
+        velocity_data=[],
+        realtime_data={}
+    )
     
     # Avvia thread analisi
-    thread = threading.Thread(target=analysis_loop)
-    thread.daemon = True
-    app_state['analysis_thread'] = thread
+    thread = threading.Thread(target=analysis_loop, daemon=True)
+    set_state(analysis_thread=thread)
     thread.start()
     
     return jsonify({'success': True, 'message': 'Analisi avviata'})
 
 
 def analysis_loop():
-    """Loop analisi"""
-    cap = cv2.VideoCapture(app_state['video_path'])
+    """Loop analisi ottimizzato"""
+    video_path = get_state('video_path')
+    cap = cv2.VideoCapture(video_path)
     
     if not cap.isOpened():
-        app_state['is_analyzing'] = False
+        set_state(is_analyzing=False)
         return
     
-    app_state['cap'] = cap
+    set_state(cap=cap)
+    
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    app_state['total_frames'] = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    app_state['current_frame'] = 0
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    
+    set_state(total_frames=total_frames, current_frame=0)
+    
+    last_update = 0
     
     with mp_pose.Pose(
         min_detection_confidence=0.5,
@@ -411,8 +502,8 @@ def analysis_loop():
         model_complexity=1
     ) as pose:
         
-        while cap.isOpened() and app_state['is_analyzing']:
-            if app_state['step_mode'] or app_state['is_paused']:
+        while cap.isOpened() and get_state('is_analyzing'):
+            if get_state('is_paused'):
                 time.sleep(0.1)
                 continue
             
@@ -420,7 +511,8 @@ def analysis_loop():
             if not ret:
                 break
             
-            app_state['current_frame'] = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
+            current_frame = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
+            set_state(current_frame=current_frame)
             
             image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             image.flags.writeable = False
@@ -430,9 +522,7 @@ def analysis_loop():
             
             if results.pose_landmarks:
                 mp_drawing.draw_landmarks(
-                    image,
-                    results.pose_landmarks,
-                    mp_pose.POSE_CONNECTIONS,
+                    image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS,
                     landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style()
                 )
                 
@@ -440,80 +530,90 @@ def analysis_loop():
                 right_hip = results.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_HIP]
                 hip_y = ((left_hip.y + right_hip.y) / 2) * frame_height
                 
-                status, current_height = app_state['analyzer'].process_frame(hip_y)
+                analyzer = get_state('analyzer')
+                status, current_height = analyzer.process_frame(hip_y)
                 
-                # Visualizzazioni
                 if status == "calibrazione_baseline":
                     cv2.putText(image, "CALIBRAZIONE BASELINE", (10, 40),
                                 cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 255), 3)
                 elif status == "analisi":
-                    if app_state['analyzer'].jump_started:
+                    if analyzer.jump_started:
                         cv2.putText(image, "SALTO IN CORSO!", (10, 40),
                                     cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
                         cv2.putText(image, f"Altezza: {current_height:.1f} cm", (10, 90),
                                     cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
                         
-                        # Aggiorna dati real-time
-                        t_seconds = app_state['analyzer'].current_frame / max(1, app_state['analyzer'].fps)
-                        app_state['trajectory_data'].append({
-                            't': round(t_seconds, 3),
-                            'y': round(current_height, 2)
-                        })
+                        # Update data (con sampling per ridurre carico)
+                        t_seconds = analyzer.current_frame / max(1, analyzer.fps)
                         
-                        if len(app_state['analyzer'].hip_velocities) > 0:
-                            app_state['velocity_data'].append({
+                        traj_data = get_state('trajectory_data')
+                        traj_data.append({'t': round(t_seconds, 3), 'y': round(current_height, 2)})
+                        set_state(trajectory_data=traj_data)
+                        
+                        if len(analyzer.hip_velocities) > 0:
+                            vel_data = get_state('velocity_data')
+                            vel_data.append({
                                 't': round(t_seconds, 3),
-                                'v': round(app_state['analyzer'].hip_velocities[-1], 2)
+                                'v': round(analyzer.hip_velocities[-1], 2)
                             })
+                            set_state(velocity_data=vel_data)
                         
-                        app_state['realtime_data'] = {
+                        body_mass = get_state('body_mass_kg')
+                        set_state(realtime_data={
                             'current_height': round(current_height, 1),
-                            'max_height': round(app_state['analyzer'].max_jump_height_cm, 1),
-                            'takeoff_velocity': round(app_state['analyzer'].get_takeoff_velocity(), 1),
-                            'estimated_power': round(app_state['analyzer'].get_estimated_power(app_state['body_mass_kg']), 1)
-                        }
+                            'max_height': round(analyzer.max_jump_height_cm, 1),
+                            'takeoff_velocity': round(analyzer.get_takeoff_velocity(), 1),
+                            'estimated_power': round(analyzer.get_estimated_power(body_mass), 1)
+                        })
             
-            # Salva frame
-            _, buffer = cv2.imencode('.jpg', image)
-            app_state['current_video_frame'] = base64.b64encode(buffer).decode('utf-8')
-            
-            time.sleep(0.01)
-
-            # Se stiamo registrando dalla webcam e il salto è terminato, ferma la registrazione
-            if app_state.get('is_recording') and app_state.get('analyzer') and app_state['analyzer'].jump_ended:
+            # Update frame (rate limited)
+            current_time = time.time()
+            if current_time - last_update >= FRAME_CACHE_DURATION:
                 try:
-                    # Ferma registrazione in modo sicuro
-                    stop_recording()
-                except Exception:
-                    app_state['is_recording'] = False
+                    _, buffer = cv2.imencode('.jpg', image, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                    set_state(current_video_frame=base64.b64encode(buffer).decode('utf-8'))
+                    last_update = current_time
+                except Exception as e:
+                    print(f"Error encoding frame: {e}")
+            
+            # Stop recording when jump ends
+            if get_state('is_recording'):
+                analyzer = get_state('analyzer')
+                if analyzer and analyzer.jump_ended:
+                    try:
+                        stop_recording()
+                    except:
+                        set_state(is_recording=False)
     
     cap.release()
-    app_state['cap'] = None
-    app_state['is_analyzing'] = False
+    set_state(cap=None, is_analyzing=False)
     
     # Prepara risultati finali
-    app_state['final_results'] = {
-        'max_height': round(app_state['analyzer'].max_jump_height_cm, 2),
-        'flight_time': round(app_state['analyzer'].get_flight_time(), 3),
-        'fall_time': round(app_state['analyzer'].get_fall_time(), 3),
-        'contact_time': round(app_state['analyzer'].get_contact_time(), 3),
-        'eccentric_time': round(app_state['analyzer'].get_eccentric_time(), 3),
-        'concentric_time': round(app_state['analyzer'].get_concentric_time(), 3),
-        'takeoff_velocity': round(app_state['analyzer'].get_takeoff_velocity(), 2),
-        'estimated_power': round(app_state['analyzer'].get_estimated_power(app_state['body_mass_kg']), 1),
-        'average_force': round(app_state['analyzer'].get_average_force(app_state['body_mass_kg']), 1),
-        'jump_detected': app_state['analyzer'].jump_started
-    }
+    analyzer = get_state('analyzer')
+    body_mass = get_state('body_mass_kg')
+    
+    set_state(final_results={
+        'max_height': round(analyzer.max_jump_height_cm, 2),
+        'flight_time': round(analyzer.get_flight_time(), 3),
+        'fall_time': round(analyzer.get_fall_time(), 3),
+        'contact_time': round(analyzer.get_contact_time(), 3),
+        'eccentric_time': round(analyzer.get_eccentric_time(), 3),
+        'concentric_time': round(analyzer.get_concentric_time(), 3),
+        'takeoff_velocity': round(analyzer.get_takeoff_velocity(), 2),
+        'estimated_power': round(analyzer.get_estimated_power(body_mass), 1),
+        'average_force': round(analyzer.get_average_force(body_mass), 1),
+        'jump_detected': analyzer.jump_started
+    })
 
 
 @app.route('/api/analysis/status', methods=['GET'])
 def analysis_status():
     """Stato analisi"""
     return jsonify({
-        'is_analyzing': app_state['is_analyzing'],
-        'is_paused': app_state['is_paused'],
-        'current_frame': app_state['current_frame'],
-        'total_frames': app_state['total_frames']
+        'is_analyzing': get_state('is_analyzing'),
+        'is_paused': get_state('is_paused'),
+        'current_frame': get_state('current_frame'),
+        'total_frames': get_state('total_frames')
     })
 
 
@@ -521,22 +621,22 @@ def analysis_status():
 def analysis_data():
     """Dati real-time analisi"""
     return jsonify({
-        'realtime': app_state.get('realtime_data', {}),
-        'trajectory': app_state.get('trajectory_data', []),
-        'velocity': app_state.get('velocity_data', [])
+        'realtime': get_state('realtime_data'),
+        'trajectory': get_state('trajectory_data'),
+        'velocity': get_state('velocity_data')
     })
 
 
 @app.route('/api/analysis/results', methods=['GET'])
 def analysis_results():
     """Risultati finali"""
-    if 'final_results' in app_state:
-        results = app_state['final_results']
+    final_results = get_state('final_results')
+    if final_results:
         return jsonify({
             'success': True,
-            'results': results,
-            'trajectory': app_state.get('trajectory_data', []),
-            'velocity': app_state.get('velocity_data', [])
+            'results': final_results,
+            'trajectory': get_state('trajectory_data'),
+            'velocity': get_state('velocity_data')
         })
     return jsonify({'success': False, 'error': 'Analisi non completata'})
 
@@ -544,8 +644,8 @@ def analysis_results():
 @app.route('/api/analysis/pause', methods=['POST'])
 def pause_analysis():
     """Pausa analisi"""
-    if app_state['is_analyzing']:
-        app_state['is_paused'] = True
+    if get_state('is_analyzing'):
+        set_state(is_paused=True)
         return jsonify({'success': True})
     return jsonify({'success': False})
 
@@ -553,9 +653,8 @@ def pause_analysis():
 @app.route('/api/analysis/resume', methods=['POST'])
 def resume_analysis():
     """Riprendi analisi"""
-    if app_state['is_analyzing']:
-        app_state['is_paused'] = False
-        app_state['step_mode'] = False
+    if get_state('is_analyzing'):
+        set_state(is_paused=False)
         return jsonify({'success': True})
     return jsonify({'success': False})
 
@@ -563,50 +662,33 @@ def resume_analysis():
 @app.route('/api/analysis/stop', methods=['POST'])
 def stop_analysis():
     """Ferma analisi"""
-    app_state['is_analyzing'] = False
-    app_state['is_paused'] = False
+    set_state(is_analyzing=False, is_paused=False)
     return jsonify({'success': True})
-
-
-@app.route('/api/analysis/retry', methods=['POST'])
-def retry_analysis():
-    """Ripeti test"""
-    if app_state['analyzer'] and app_state['analyzer'].calibrated_with_height:
-        app_state['analyzer'].reset_keep_calibration()
-        app_state['is_paused'] = False
-        app_state['current_frame'] = 0
-        app_state['trajectory_data'] = []
-        app_state['velocity_data'] = []
-        return jsonify({'success': True})
-    return jsonify({'success': False})
 
 
 @app.route('/api/results/save', methods=['POST'])
 def save_results():
     """Salva risultati in file JSON"""
     try:
-        if 'final_results' not in app_state:
+        final_results = get_state('final_results')
+        if not final_results:
             return jsonify({'success': False, 'error': 'Nessun risultato da salvare'})
         
-        # Crea directory se non esiste
-        import os
         save_dir = os.path.expanduser('~\\AppData\\Roaming\\Kin.ai\\last_jump')
         os.makedirs(save_dir, exist_ok=True)
         
-        # Prepara dati completi
         save_data = {
             'timestamp': datetime.now().isoformat(),
-            'results': app_state['final_results'],
-            'trajectory': app_state.get('trajectory_data', []),
-            'velocity': app_state.get('velocity_data', []),
+            'results': final_results,
+            'trajectory': get_state('trajectory_data'),
+            'velocity': get_state('velocity_data'),
             'settings': {
-                'fps': app_state.get('fps', 30),
-                'person_height_cm': app_state.get('person_height_cm', 170),
-                'body_mass_kg': app_state.get('body_mass_kg', 70)
+                'fps': get_state('fps'),
+                'person_height_cm': get_state('person_height_cm'),
+                'body_mass_kg': get_state('body_mass_kg')
             }
         }
         
-        # Salva file
         file_path = os.path.join(save_dir, 'results.json')
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(save_data, f, indent=2, ensure_ascii=False)
@@ -623,10 +705,10 @@ def save_results():
 
 @app.route('/api/video/info', methods=['GET'])
 def video_info():
-    """Restituisce info sul video corrente (dopo registrazione/upload)."""
-    path = app_state.get('video_path')
-    total = app_state.get('total_frames', 0)
-    fps = app_state.get('fps', 30)
+    """Info video corrente"""
+    path = get_state('video_path')
+    total = get_state('total_frames')
+    fps = get_state('fps')
     return jsonify({
         'success': True,
         'video_path': os.path.basename(path) if path else None,
@@ -637,88 +719,38 @@ def video_info():
 
 @app.route('/api/video/frame_at', methods=['GET'])
 def video_frame_at():
-    """Ottiene un frame specifico dal video caricato (solo post-analisi)."""
+    """Frame specifico (ottimizzato con cache)"""
     try:
         index = int(request.args.get('index', 0))
-    except Exception:
+    except:
         return jsonify({'success': False, 'error': 'Indice non valido'})
-    path = app_state.get('video_path')
+    
+    path = get_state('video_path')
     if not path or not os.path.exists(path):
         return jsonify({'success': False, 'error': 'Nessun video disponibile'})
 
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
         return jsonify({'success': False, 'error': 'Impossibile aprire il video'})
+    
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    if index < 0:
-        index = 0
-    if index >= total:
-        index = total - 1 if total > 0 else 0
+    index = max(0, min(index, total - 1))
+    
     cap.set(cv2.CAP_PROP_POS_FRAMES, index)
     ret, frame = cap.read()
-    if not ret or frame is None:
-        cap.release()
-        return jsonify({'success': False, 'error': 'Frame non disponibile'})
-    _, buffer = cv2.imencode('.jpg', frame)
     cap.release()
+    
+    if not ret or frame is None:
+        return jsonify({'success': False, 'error': 'Frame non disponibile'})
+    
+    _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    
     return jsonify({
         'success': True,
         'frame': base64.b64encode(buffer).decode('utf-8'),
         'index': index,
         'total_frames': total
     })
-
-
-# Percorso alla cartella frontend/dist
-FRONTEND_DIST = Path(__file__).parent.parent / 'frontend' / 'dist'
-
-
-@app.route('/', defaults={'path': ''})
-@app.route('/<path:path>')
-def serve_frontend(path):
-    """Serve i file statici del frontend (esclude le route API)"""
-    # Non servire il frontend per le route API
-    if path.startswith('api/'):
-        return jsonify({'error': 'Route API non trovata'}), 404
-    
-    if path == '' or path == '/':
-        # Serve index.html per la root
-        if (FRONTEND_DIST / 'index.html').exists():
-            return send_from_directory(str(FRONTEND_DIST), 'index.html')
-        else:
-            return f'''
-            <html>
-                <head><title>Frontend non trovato</title></head>
-                <body style="font-family: Arial; padding: 40px; text-align: center;">
-                    <h1>Frontend non trovato</h1>
-                    <p>Il frontend non è stato compilato.</p>
-                    <p>Esegui i seguenti comandi:</p>
-                    <pre style="background: #f0f0f0; padding: 20px; display: inline-block; text-align: left;">
-cd frontend
-npm install
-npm run build
-                    </pre>
-                    <p>Poi riavvia il backend.</p>
-                </body>
-            </html>
-            ''', 404
-    
-    # Serve file statici (JS, CSS, immagini, ecc.)
-    file_path = FRONTEND_DIST / path
-    if file_path.exists() and file_path.is_file():
-        return send_from_directory(str(FRONTEND_DIST), path)
-    
-    # Se il file non esiste, prova a servire index.html (per SPA routing)
-    if (FRONTEND_DIST / 'index.html').exists():
-        return send_from_directory(str(FRONTEND_DIST), 'index.html')
-    
-    return jsonify({'error': 'File non trovato'}), 404
-
-
-def open_browser():
-    """Apre il browser dopo un breve delay"""
-    time.sleep(1.5)  # Aspetta che il server sia pronto
-    webbrowser.open('http://localhost:5000')
 
 
 if __name__ == '__main__':
