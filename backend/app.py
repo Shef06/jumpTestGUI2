@@ -187,7 +187,10 @@ def upload_video():
             total_frames = int(test_cap.get(cv2.CAP_PROP_FRAME_COUNT))
             test_cap.release()
             
-            set_state(video_path=filepath)
+            set_state(video_path=filepath,
+                      current_video_frame=None,
+                      frame_cache=None,
+                      last_frame_time=0)
             
             return jsonify({
                 'success': True,
@@ -213,16 +216,33 @@ def start_recording():
         return stop_recording()
     
     camera_index = get_state('camera_index')
-    cap = cv2.VideoCapture(camera_index)
+    # Prefer DirectShow on Windows for faster device init and lower latency
+    try:
+        cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
+    except Exception:
+        cap = cv2.VideoCapture(camera_index)
     
     if not cap.isOpened():
         return jsonify({'success': False, 'error': f'Impossibile aprire camera {camera_index}'})
     
+    # Try to reduce internal buffering if supported
+    try:
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    except Exception:
+        pass
+
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    # Warm-up: read and discard a few frames to let exposure/white balance settle
+    try:
+        for _ in range(5):
+            cap.read()
+    except Exception:
+        pass
     
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     filename = f"recording_{timestamp}.mp4"
@@ -237,7 +257,10 @@ def start_recording():
         cap=cap,
         video_writer=video_writer,
         is_recording=True,
-        record_start_time=time.time()
+        record_start_time=time.time(),
+        current_video_frame=None,
+        frame_cache=None,
+        last_frame_time=0
     )
     
     # Avvia thread registrazione
@@ -264,9 +287,9 @@ def recording_loop():
             break
         
         elapsed = time.time() - get_state('record_start_time')
-        cv2.putText(frame, f"REC {elapsed:.1f}s", (10, 40),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
-        cv2.circle(frame, (frame.shape[1] - 40, 40), 15, (0, 0, 255), -1)
+        # cv2.putText(frame, f"REC {elapsed:.1f}s", (10, 40),
+        #             cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
+        # cv2.circle(frame, (frame.shape[1] - 40, 40), 15, (0, 0, 255), -1)
         
         writer.write(frame)
         

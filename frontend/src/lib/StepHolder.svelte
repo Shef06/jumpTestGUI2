@@ -81,14 +81,15 @@
         }
       }
 
+      // Stop anteprima PRIMA di avviare la registrazione lato backend
+      try { stopStream($appState.previewStream); } catch (_) {}
+      clearPreviewStream();
+      setCameraPreview(false);
+
       const data = await api.startRecording();
       
       if (data.success) {
         appState.update(s => ({ ...s, isRecording: true }));
-        // Chiudi anteprima locale mentre registri dalla webcam
-        try { stopStream($appState.previewStream); } catch (_) {}
-        clearPreviewStream();
-        setCameraPreview(false);
       } else {
         errorMessage = data.error || 'Errore avvio registrazione';
       }
@@ -179,23 +180,16 @@
       return;
     }
     // Avvia registrazione al click su Avvia Analisi e disattiva anteprima
-    if ($appState.inputMode === 'camera') {
-      try {
-        const data = await api.startRecording();
-        if (data.success) {
-          appState.update(s => ({ ...s, isRecording: true }));
-          // stop local preview stream
-          try {
-            stopStream($appState.previewStream);
-          } catch (_) {}
-          clearPreviewStream();
-          setCameraPreview(false);
-        }
-      } catch (e) {
-        // Se fallisce l'avvio registrazione, mostra errore e interrompi
-        errorMessage = 'Errore avvio registrazione';
+    // Verifica che esista già un video lato backend (registrato o caricato)
+    try {
+      const info = await fetch(`${getBackendUrl()}/api/video/info`).then(r => r.json());
+      if (!info?.video_path) {
+        errorMessage = 'Nessun video disponibile: registra o carica prima il video.';
         return;
       }
+    } catch (_) {
+      errorMessage = 'Errore verifica video disponibile';
+      return;
     }
     
     // Start calibration
@@ -241,22 +235,16 @@
   // Step 3: Analysis
   async function startAnalysis() {
     errorMessage = '';
-    // Se non stiamo registrando (ad es. accesso da step 3), avvia registrazione e chiudi anteprima
-    if ($appState.inputMode === 'camera' && !$appState.isRecording) {
-      try {
-        const data = await api.startRecording();
-        if (data.success) {
-          appState.update(s => ({ ...s, isRecording: true }));
-          try {
-            stopStream($appState.previewStream);
-          } catch (_) {}
-          clearPreviewStream();
-          setCameraPreview(false);
-        }
-      } catch (e) {
-        errorMessage = 'Errore avvio registrazione';
+    // Verifica che esista già un video lato backend (registrato o caricato)
+    try {
+      const info = await fetch(`${getBackendUrl()}/api/video/info`).then(r => r.json());
+      if (!info?.video_path) {
+        errorMessage = 'Nessun video disponibile: registra o carica prima il video.';
         return;
       }
+    } catch (_) {
+      errorMessage = 'Errore verifica video disponibile';
+      return;
     }
     
     try {
