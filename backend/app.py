@@ -629,7 +629,8 @@ def analysis_loop():
         'takeoff_velocity': round(analyzer.get_takeoff_velocity(), 2),
         'estimated_power': round(analyzer.get_estimated_power(body_mass), 1),
         'average_force': round(analyzer.get_average_force(body_mass), 1),
-        'jump_detected': analyzer.jump_started
+        'jump_detected': analyzer.jump_started,
+        'body_mass_kg': body_mass
     })
 
 

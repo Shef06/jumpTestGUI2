@@ -7,9 +7,18 @@
   
   const dispatch = createEventDispatcher();
   
+  const g = 9.81; // Accelerazione di gravità in m/s²
+  
   let trajectoryCanvas;
   let velocityCanvas;
+  let combinedCanvas;
   let derivedVelocityData = [];
+  let calculatedAverageForce = 0; // Forza media calcolata dalla velocità
+  let calculatedTakeoffVelocity = 0; // Velocità decollo calcolata dai grafici
+  let calculatedConcentricTime = 0; // Fase concentrica calcolata dalla velocità
+  let calculatedEccentricTime = 0; // Fase eccentrica calcolata dalla velocità
+  let calculatedContactTime = 0; // Tempo di contatto calcolato dalla velocità
+  let calculatedEstimatedPower = 0; // Potenza esplosiva calcolata dalla velocità
   
   const GRID_STEPS = 5;
   const TRAJECTORY_STYLE = {
@@ -45,6 +54,514 @@
 
   $: derivedVelocityData = computeDerivedVelocity($appState.trajectoryData);
   
+  // Funzione per calcolare la forza media dalla velocità
+  function calculateAverageForceFromVelocity(velocityData, trajectoryData, bodyMassKg = 70.0) {
+    if (!velocityData || velocityData.length < 2 || bodyMassKg <= 0) {
+      return 0;
+    }
+    
+    // Identifica la fase di contatto: quando l'altezza è vicina a 0 o negativa
+    const CONTACT_THRESHOLD = 5.0; // cm - soglia per considerare l'atleta a contatto con il suolo
+    
+    // Crea una mappa per l'altezza per accesso rapido
+    const heightMap = new Map();
+    if (trajectoryData && trajectoryData.length > 0) {
+      trajectoryData.forEach(point => {
+        heightMap.set(point.t, point.y);
+      });
+    }
+    
+    // Calcola l'accelerazione dalla velocità
+    const accelerations = [];
+    for (let i = 1; i < velocityData.length; i++) {
+      const prev = velocityData[i - 1];
+      const curr = velocityData[i];
+      const deltaT = curr.t - prev.t;
+      
+      if (deltaT > 0 && isFinite(deltaT)) {
+        // Velocità in m/s
+        const v1_ms = prev.v / 100;
+        const v2_ms = curr.v / 100;
+        const a_ms2 = (v2_ms - v1_ms) / deltaT;
+        
+        accelerations.push({
+          time: curr.t,
+          a_ms2: a_ms2,
+          velocity: curr.v
+        });
+      }
+    }
+    
+    if (accelerations.length === 0) {
+      return 0;
+    }
+    
+    // Calcola la forza istantanea solo durante la fase di contatto
+    const forces = [];
+    
+    for (let i = 0; i < accelerations.length; i++) {
+      const acc = accelerations[i];
+      const height = heightMap.get(acc.time);
+      
+      // Considera solo i punti durante il contatto (altezza <= CONTACT_THRESHOLD)
+      // e durante la fase concentrica (velocità positiva o in aumento)
+      const isInContact = height !== undefined && Math.abs(height) <= CONTACT_THRESHOLD;
+      
+      if (isInContact && Math.abs(acc.a_ms2) > 0.05) { // Soglia per filtrare il rumore
+        // Forza: F = m * (a + g)
+        // Durante il contatto, la forza totale è m * (a + g) dove a è l'accelerazione verso l'alto
+        const force = bodyMassKg * (acc.a_ms2 + g);
+        
+        // Considera solo forze positive significative (verso l'alto, durante la fase concentrica)
+        if (force > bodyMassKg * g * 0.3 && acc.velocity >= 0) {
+          forces.push(force);
+        }
+      }
+    }
+    
+    if (forces.length === 0) {
+      return 0;
+    }
+    
+    // Calcola la media delle forze durante il contatto
+    const averageForce = forces.reduce((sum, f) => sum + f, 0) / forces.length;
+    
+    return averageForce;
+  }
+  
+  // Funzione per calcolare la velocità di decollo
+  function calculateTakeoffVelocity(trajectoryData, velocityData) {
+    if (!trajectoryData || trajectoryData.length < 2 || !velocityData || velocityData.length < 2) {
+      return 0;
+    }
+    
+    // Metodo 1: Trova il momento del decollo (quando l'altezza torna a 0 o supera il baseline dopo essere stata negativa)
+    let takeoffTime = null;
+    let baselineHeight = trajectoryData[0]?.y || 0;
+    let minHeight = Infinity;
+    let minHeightIndex = -1;
+    
+    // Trova il minimo dell'altezza (fondo piegamento)
+    for (let i = 0; i < trajectoryData.length; i++) {
+      if (trajectoryData[i].y < minHeight) {
+        minHeight = trajectoryData[i].y;
+        minHeightIndex = i;
+      }
+    }
+    
+    // Dopo il fondo piegamento, trova quando l'altezza torna al baseline o supera (decollo)
+    if (minHeightIndex >= 0) {
+      for (let i = minHeightIndex + 1; i < trajectoryData.length; i++) {
+        // L'altezza torna al baseline o supera il baseline e la velocità è positiva
+        if (trajectoryData[i].y >= baselineHeight) {
+          // Verifica che la velocità sia positiva (fase concentrica)
+          const velocityAtTime = velocityData.find(v => Math.abs(v.t - trajectoryData[i].t) < 0.01);
+          if (velocityAtTime && velocityAtTime.v > 0) {
+            takeoffTime = trajectoryData[i].t;
+            break;
+          }
+        }
+      }
+    }
+    
+    // Metodo 2 (più robusto): Trova l'altezza massima nella fase di volo e calcola v = sqrt(2 * g * h)
+    let hMaxVolo = 0;
+    if (takeoffTime !== null) {
+      // Cerca l'altezza massima dopo il decollo
+      for (let i = 0; i < trajectoryData.length; i++) {
+        if (trajectoryData[i].t > takeoffTime && trajectoryData[i].y > hMaxVolo) {
+          hMaxVolo = trajectoryData[i].y;
+        }
+      }
+    } else {
+      // Se non abbiamo trovato il decollo, cerca l'altezza massima assoluta dopo il minimo
+      if (minHeightIndex >= 0) {
+        for (let i = minHeightIndex + 1; i < trajectoryData.length; i++) {
+          if (trajectoryData[i].y > hMaxVolo) {
+            hMaxVolo = trajectoryData[i].y;
+          }
+        }
+      }
+    }
+    
+    // Calcola la velocità di decollo usando v = sqrt(2 * g * h)
+    if (hMaxVolo > 0) {
+      const hMaxM = hMaxVolo / 100; // Converti cm in metri
+      const vDecolloMs = Math.sqrt(2 * g * hMaxM);
+      return vDecolloMs * 100; // Converti m/s in cm/s
+    }
+    
+    // Fallback: usa il valore diretto della velocità al momento del decollo
+    if (takeoffTime !== null) {
+      const velocityAtTakeoff = velocityData.find(v => Math.abs(v.t - takeoffTime) < 0.01);
+      if (velocityAtTakeoff && velocityAtTakeoff.v > 0) {
+        return velocityAtTakeoff.v;
+      }
+    }
+    
+    // Ultimo fallback: trova la velocità massima positiva
+    let maxVelocity = 0;
+    for (let i = 0; i < velocityData.length; i++) {
+      if (velocityData[i].v > maxVelocity) {
+        maxVelocity = velocityData[i].v;
+      }
+    }
+    
+    return maxVelocity;
+  }
+  
+  // Funzione per calcolare la fase concentrica
+  function calculateConcentricTime(trajectoryData, velocityData, bodyMassKg = 70.0) {
+    if (!trajectoryData || trajectoryData.length < 2 || !velocityData || velocityData.length < 2) {
+      return 0;
+    }
+    
+    let concentricStartTime = null;
+    let concentricEndTime = null;
+    let baselineHeight = trajectoryData[0]?.y || 0;
+    let minVelocity = Infinity;
+    let minVelocityIndex = -1;
+    let minHeight = Infinity;
+    let minHeightIndex = -1;
+    
+    // Trova il minimo della velocità (fondo piegamento - fine fase eccentrica)
+    for (let i = 0; i < velocityData.length; i++) {
+      if (velocityData[i].v < minVelocity) {
+        minVelocity = velocityData[i].v;
+        minVelocityIndex = i;
+      }
+    }
+    
+    // Trova il minimo dell'altezza
+    for (let i = 0; i < trajectoryData.length; i++) {
+      if (trajectoryData[i].y < minHeight) {
+        minHeight = trajectoryData[i].y;
+        minHeightIndex = i;
+      }
+    }
+    
+    // Inizio fase concentrica: quando la velocità diventa positiva dopo il minimo
+    // o quando la velocità inizia ad aumentare dopo il minimo
+    if (minVelocityIndex >= 0) {
+      // Cerca il punto in cui la velocità diventa positiva o inizia ad aumentare
+      for (let i = minVelocityIndex; i < velocityData.length; i++) {
+        // La velocità diventa positiva o inizia ad aumentare significativamente
+        if (velocityData[i].v > 0 || (i > minVelocityIndex && velocityData[i].v > velocityData[i - 1].v + 5)) {
+          concentricStartTime = velocityData[i].t;
+          break;
+        }
+      }
+    }
+    
+    // Fine fase concentrica: quando avviene il decollo (altezza torna al baseline o supera)
+    if (minHeightIndex >= 0 && concentricStartTime !== null) {
+      for (let i = minHeightIndex + 1; i < trajectoryData.length; i++) {
+        // L'altezza torna al baseline o supera il baseline
+        if (trajectoryData[i].y >= baselineHeight && trajectoryData[i].t >= concentricStartTime) {
+          // Verifica che la velocità sia ancora positiva
+          const velocityAtTime = velocityData.find(v => Math.abs(v.t - trajectoryData[i].t) < 0.01);
+          if (velocityAtTime && velocityAtTime.v > 0) {
+            concentricEndTime = trajectoryData[i].t;
+            break;
+          }
+        }
+      }
+    }
+    
+    // Se non abbiamo trovato la fine, usa il momento della velocità massima
+    if (concentricStartTime !== null && concentricEndTime === null) {
+      let maxVelocity = 0;
+      let maxVelocityTime = null;
+      for (let i = 0; i < velocityData.length; i++) {
+        if (velocityData[i].t >= concentricStartTime && velocityData[i].v > maxVelocity) {
+          maxVelocity = velocityData[i].v;
+          maxVelocityTime = velocityData[i].t;
+        }
+      }
+      if (maxVelocityTime !== null) {
+        concentricEndTime = maxVelocityTime;
+      }
+    }
+    
+    // Calcola il tempo della fase concentrica
+    if (concentricStartTime !== null && concentricEndTime !== null && concentricEndTime > concentricStartTime) {
+      return concentricEndTime - concentricStartTime;
+    }
+    
+    return 0;
+  }
+  
+  // Funzione per calcolare la fase eccentrica
+  function calculateEccentricTime(trajectoryData, velocityData) {
+    if (!trajectoryData || trajectoryData.length < 2 || !velocityData || velocityData.length < 2) {
+      return 0;
+    }
+    
+    let eccentricStartTime = null;
+    let eccentricEndTime = null;
+    let baselineHeight = trajectoryData[0]?.y || 0;
+    let minVelocity = Infinity;
+    let minVelocityIndex = -1;
+    
+    // Trova il minimo della velocità (fondo piegamento - fine fase eccentrica)
+    for (let i = 0; i < velocityData.length; i++) {
+      if (velocityData[i].v < minVelocity) {
+        minVelocity = velocityData[i].v;
+        minVelocityIndex = i;
+      }
+    }
+    
+    // Inizio fase eccentrica: quando la velocità diventa negativa per la prima volta
+    // (l'atleta inizia a scendere)
+    for (let i = 0; i < velocityData.length; i++) {
+      if (velocityData[i].v < 0 && eccentricStartTime === null) {
+        // Verifica anche che l'altezza stia diminuendo
+        const heightAtTime = trajectoryData.find(t => Math.abs(t.t - velocityData[i].t) < 0.01);
+        if (heightAtTime && heightAtTime.y < baselineHeight) {
+          eccentricStartTime = velocityData[i].t;
+          break;
+        } else if (heightAtTime === undefined) {
+          // Se non troviamo l'altezza corrispondente, usa comunque la velocità
+          eccentricStartTime = velocityData[i].t;
+          break;
+        }
+      }
+    }
+    
+    // Fine fase eccentrica: quando la velocità raggiunge il minimo (fondo piegamento)
+    if (minVelocityIndex >= 0) {
+      eccentricEndTime = velocityData[minVelocityIndex].t;
+    }
+    
+    // Calcola il tempo della fase eccentrica
+    if (eccentricStartTime !== null && eccentricEndTime !== null && eccentricEndTime > eccentricStartTime) {
+      return eccentricEndTime - eccentricStartTime;
+    }
+    
+    return 0;
+  }
+  
+  // Funzione per calcolare il tempo di contatto
+  function calculateContactTime(trajectoryData, velocityData) {
+    if (!trajectoryData || trajectoryData.length < 2 || !velocityData || velocityData.length < 2) {
+      return 0;
+    }
+    
+    let contactStartTime = null;
+    let contactEndTime = null;
+    let baselineHeight = trajectoryData[0]?.y || 0;
+    
+    // Inizio contatto: quando la velocità diventa negativa per la prima volta
+    // (l'atleta inizia a scendere, inizia il contatto con il suolo)
+    for (let i = 0; i < velocityData.length; i++) {
+      if (velocityData[i].v < 0 && contactStartTime === null) {
+        // Verifica anche che l'altezza stia diminuendo
+        const heightAtTime = trajectoryData.find(t => Math.abs(t.t - velocityData[i].t) < 0.01);
+        if (heightAtTime && heightAtTime.y < baselineHeight) {
+          contactStartTime = velocityData[i].t;
+          break;
+        } else if (heightAtTime === undefined) {
+          // Se non troviamo l'altezza corrispondente, usa comunque la velocità
+          contactStartTime = velocityData[i].t;
+          break;
+        }
+      }
+    }
+    
+    // Fine contatto: quando avviene il decollo (altezza torna al baseline o supera)
+    let minHeight = Infinity;
+    let minHeightIndex = -1;
+    
+    // Trova il minimo dell'altezza (fondo piegamento)
+    for (let i = 0; i < trajectoryData.length; i++) {
+      if (trajectoryData[i].y < minHeight) {
+        minHeight = trajectoryData[i].y;
+        minHeightIndex = i;
+      }
+    }
+    
+    // Dopo il fondo piegamento, trova quando l'altezza torna al baseline o supera (decollo)
+    if (minHeightIndex >= 0) {
+      for (let i = minHeightIndex + 1; i < trajectoryData.length; i++) {
+        // L'altezza torna al baseline o supera il baseline e la velocità è positiva
+        if (trajectoryData[i].y >= baselineHeight) {
+          // Verifica che la velocità sia positiva (fase concentrica)
+          const velocityAtTime = velocityData.find(v => Math.abs(v.t - trajectoryData[i].t) < 0.01);
+          if (velocityAtTime && velocityAtTime.v > 0) {
+            contactEndTime = trajectoryData[i].t;
+            break;
+          }
+        }
+      }
+    }
+    
+    // Se non abbiamo trovato il decollo, usa il momento della velocità massima
+    if (contactStartTime !== null && contactEndTime === null) {
+      let maxVelocity = 0;
+      let maxVelocityTime = null;
+      for (let i = 0; i < velocityData.length; i++) {
+        if (velocityData[i].t >= contactStartTime && velocityData[i].v > maxVelocity) {
+          maxVelocity = velocityData[i].v;
+          maxVelocityTime = velocityData[i].t;
+        }
+      }
+      if (maxVelocityTime !== null) {
+        contactEndTime = maxVelocityTime;
+      }
+    }
+    
+    // Calcola il tempo di contatto
+    if (contactStartTime !== null && contactEndTime !== null && contactEndTime > contactStartTime) {
+      return contactEndTime - contactStartTime;
+    }
+    
+    // Fallback: usa la somma di fase eccentrica + fase concentrica
+    const eccentricTime = calculateEccentricTime(trajectoryData, velocityData);
+    const concentricTime = calculateConcentricTime(trajectoryData, velocityData, 70.0);
+    if (eccentricTime > 0 && concentricTime > 0) {
+      return eccentricTime + concentricTime;
+    }
+    
+    return 0;
+  }
+  
+  // Funzione per calcolare la potenza esplosiva
+  function calculateEstimatedPower(velocityData, trajectoryData, bodyMassKg = 70.0) {
+    if (!velocityData || velocityData.length < 2 || bodyMassKg <= 0) {
+      return 0;
+    }
+    
+    // Identifica la fase di contatto: quando l'altezza è vicina a 0 o negativa
+    const CONTACT_THRESHOLD = 5.0; // cm - soglia per considerare l'atleta a contatto con il suolo
+    
+    // Crea una mappa per l'altezza per accesso rapido
+    const heightMap = new Map();
+    if (trajectoryData && trajectoryData.length > 0) {
+      trajectoryData.forEach(point => {
+        heightMap.set(point.t, point.y);
+      });
+    }
+    
+    // Calcola l'accelerazione dalla velocità
+    const accelerations = [];
+    for (let i = 1; i < velocityData.length; i++) {
+      const prev = velocityData[i - 1];
+      const curr = velocityData[i];
+      const deltaT = curr.t - prev.t;
+      
+      if (deltaT > 0 && isFinite(deltaT)) {
+        // Velocità in m/s
+        const v1_ms = prev.v / 100;
+        const v2_ms = curr.v / 100;
+        const a_ms2 = (v2_ms - v1_ms) / deltaT;
+        
+        accelerations.push({
+          time: curr.t,
+          a_ms2: a_ms2,
+          velocity: curr.v
+        });
+      }
+    }
+    
+    if (accelerations.length === 0) {
+      return 0;
+    }
+    
+    // Calcola la potenza istantanea solo durante la fase concentrica (velocità positiva)
+    const powers = [];
+    
+    for (let i = 0; i < accelerations.length; i++) {
+      const acc = accelerations[i];
+      const height = heightMap.get(acc.time);
+      
+      // Considera solo i punti durante il contatto (altezza <= CONTACT_THRESHOLD)
+      // e durante la fase concentrica (velocità positiva)
+      const isInContact = height !== undefined && Math.abs(height) <= CONTACT_THRESHOLD;
+      
+      if (isInContact && acc.velocity > 0 && Math.abs(acc.a_ms2) > 0.05) { // Soglia per filtrare il rumore
+        // Forza: F = m * (a + g)
+        // Durante il contatto, la forza totale è m * (a + g) dove a è l'accelerazione verso l'alto
+        const force = bodyMassKg * (acc.a_ms2 + g);
+        
+        // Considera solo forze positive significative (verso l'alto, durante la fase concentrica)
+        if (force > bodyMassKg * g * 0.3) {
+          // Potenza: P = F * v
+          // v in m/s
+          const v_ms = acc.velocity / 100;
+          const power = force * v_ms;
+          
+          if (power > 0) {
+            powers.push(power);
+          }
+        }
+      }
+    }
+    
+    if (powers.length === 0) {
+      return 0;
+    }
+    
+    // Trova il picco massimo della potenza
+    const maxPower = Math.max(...powers);
+    
+    return maxPower;
+  }
+  
+  // Calcola la velocità di decollo quando i dati cambiano
+  $: if (derivedVelocityData.length > 0 && $appState.trajectoryData.length > 0) {
+    calculatedTakeoffVelocity = calculateTakeoffVelocity(
+      $appState.trajectoryData,
+      derivedVelocityData
+    );
+  }
+  
+  // Calcola la fase concentrica quando i dati cambiano
+  $: if (derivedVelocityData.length > 0 && $appState.trajectoryData.length > 0 && results) {
+    const bodyMass = results.body_mass_kg || 70.0;
+    calculatedConcentricTime = calculateConcentricTime(
+      $appState.trajectoryData,
+      derivedVelocityData,
+      bodyMass
+    );
+  }
+  
+  // Calcola la fase eccentrica quando i dati cambiano
+  $: if (derivedVelocityData.length > 0 && $appState.trajectoryData.length > 0) {
+    calculatedEccentricTime = calculateEccentricTime(
+      $appState.trajectoryData,
+      derivedVelocityData
+    );
+  }
+  
+  // Calcola il tempo di contatto quando i dati cambiano
+  $: if (derivedVelocityData.length > 0 && $appState.trajectoryData.length > 0) {
+    calculatedContactTime = calculateContactTime(
+      $appState.trajectoryData,
+      derivedVelocityData
+    );
+  }
+  
+  // Calcola la forza media quando i dati cambiano
+  $: if (derivedVelocityData.length > 0 && $appState.trajectoryData.length > 0 && results) {
+    // Ottieni la massa del giocatore (assumendo che sia disponibile nei results o usa default)
+    const bodyMass = results.body_mass_kg || 70.0;
+    calculatedAverageForce = calculateAverageForceFromVelocity(
+      derivedVelocityData, 
+      $appState.trajectoryData,
+      bodyMass
+    );
+  }
+  
+  // Calcola la potenza esplosiva quando i dati cambiano
+  $: if (derivedVelocityData.length > 0 && $appState.trajectoryData.length > 0 && results) {
+    const bodyMass = results.body_mass_kg || 70.0;
+    calculatedEstimatedPower = calculateEstimatedPower(
+      derivedVelocityData,
+      $appState.trajectoryData,
+      bodyMass
+    );
+  }
+  
   $: if (trajectoryCanvas) {
     if ($appState.trajectoryData.length > 0) {
       drawTrajectoryChart();
@@ -58,6 +575,14 @@
       drawVelocityChart();
     } else {
       clearCanvas(velocityCanvas, VELOCITY_STYLE.background);
+    }
+  }
+
+  $: if (combinedCanvas) {
+    if ($appState.trajectoryData.length > 0 && derivedVelocityData.length > 0) {
+      drawCombinedChart();
+    } else {
+      clearCanvas(combinedCanvas, TRAJECTORY_STYLE.background);
     }
   }
 
@@ -85,8 +610,8 @@
       return [];
     }
 
-    // Aggiungi un punto iniziale a 0 per rendere più chiaro il grafico
-    return [{ t: velocities[0].t, v: 0 }, ...velocities];
+    // Aggiungi un punto iniziale a t=0 (primo tempo disponibile) con v=0
+    return [{ t: data[0].t, v: 0 }, ...velocities];
   }
   
   function drawTrajectoryChart() {
@@ -215,7 +740,7 @@
       style: VELOCITY_STYLE,
       xFormatter: (value) => value.toFixed(2),
       yFormatter: (value) => value.toFixed(1),
-      invertYLabel: false,
+      invertYLabel: true,
       rightSideLabels: true
     });
     
@@ -278,6 +803,203 @@
       yText: 'Velocità (cm/s)',
       style: VELOCITY_STYLE
     });
+  }
+
+  function drawCombinedChart() {
+    const ctx = combinedCanvas.getContext('2d');
+    const width = combinedCanvas.width;
+    const height = combinedCanvas.height;
+    const padding = 52;
+    const chartWidth = width - 2 * padding;
+    const chartHeight = height - 2 * padding;
+    
+    clearCanvas(combinedCanvas, TRAJECTORY_STYLE.background);
+    
+    const trajectoryData = $appState.trajectoryData;
+    const velocityData = derivedVelocityData;
+    
+    if (trajectoryData.length === 0 || velocityData.length === 0) return;
+    
+    // Calcola i range per il tempo (asse X comune)
+    const allTimes = [...trajectoryData.map(d => d.t), ...velocityData.map(d => d.t)];
+    const maxT = Math.max(...allTimes);
+    const minT = Math.min(...allTimes);
+    const deltaT = maxT === minT ? 1 : (maxT - minT);
+    
+    // Calcola i range per la traiettoria (asse Y sinistro)
+    const maxY = Math.max(...trajectoryData.map(d => d.y));
+    const minY = Math.min(...trajectoryData.map(d => d.y));
+    const deltaY = maxY === minY ? 1 : (maxY - minY);
+    
+    // Calcola i range per la velocità (asse Y destro)
+    const maxV = Math.max(...velocityData.map(d => d.v));
+    const minV = Math.min(...velocityData.map(d => d.v));
+    const deltaV = maxV === minV ? (Math.abs(maxV) || 1) : (maxV - minV);
+    
+    // Allinea graficamente il primo punto: trova il primo punto comune nel tempo
+    const firstTrajectoryTime = trajectoryData[0]?.t || 0;
+    const firstVelocityTime = velocityData[0]?.t || 0;
+    const firstCommonTime = Math.min(firstTrajectoryTime, firstVelocityTime);
+    
+    // Trova i valori corrispondenti al primo tempo comune
+    const firstTrajectoryPoint = trajectoryData.find(d => Math.abs(d.t - firstCommonTime) < 0.01) || trajectoryData[0];
+    const firstVelocityPoint = velocityData.find(d => Math.abs(d.t - firstCommonTime) < 0.01) || velocityData[0];
+    
+    // Calcola l'offset per allineare i primi punti
+    const trajectoryFirstY = height - padding - ((firstTrajectoryPoint.y - minY) / deltaY) * chartHeight;
+    const velocityFirstY = height - padding - ((firstVelocityPoint.v - minV) / deltaV) * chartHeight;
+    const velocityOffset = trajectoryFirstY - velocityFirstY;
+    
+    // Disegna la griglia per la traiettoria (asse Y sinistro)
+    drawGrid(ctx, {
+      padding,
+      width,
+      height,
+      chartWidth,
+      chartHeight,
+      minT,
+      deltaT,
+      minY,
+      deltaY,
+      style: TRAJECTORY_STYLE,
+      xFormatter: (value) => value.toFixed(2),
+      yFormatter: (value) => value.toFixed(1)
+    });
+    
+    // Disegna la griglia per la velocità (asse Y destro)
+    ctx.strokeStyle = VELOCITY_STYLE.grid;
+    ctx.lineWidth = 1;
+    ctx.fillStyle = VELOCITY_STYLE.label;
+    ctx.font = '11px sans-serif';
+    ctx.textBaseline = 'middle';
+    
+    for (let i = 0; i <= GRID_STEPS; i++) {
+      const ratio = i / GRID_STEPS;
+      const y = padding + (chartHeight * ratio);
+      const value = minV + (deltaV * (GRID_STEPS - i) / GRID_STEPS);
+      
+      ctx.beginPath();
+      ctx.moveTo(padding, y);
+      ctx.lineTo(width - padding, y);
+      ctx.stroke();
+      
+      const label = value.toFixed(1);
+      ctx.textAlign = 'left';
+      ctx.fillText(label, width - padding + 12, y);
+    }
+    
+    // Linea zero per la traiettoria
+    if (minY <= 0 && maxY >= 0) {
+      const zeroY = height - padding - ((0 - minY) / deltaY) * chartHeight;
+      ctx.strokeStyle = TRAJECTORY_STYLE.zero;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath();
+      ctx.moveTo(padding, zeroY);
+      ctx.lineTo(width - padding, zeroY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    
+    // Linea zero per la velocità
+    if (minV <= 0 && maxV >= 0) {
+      const zeroY = height - padding - ((0 - minV) / deltaV) * chartHeight + velocityOffset;
+      ctx.strokeStyle = VELOCITY_STYLE.zero;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath();
+      ctx.moveTo(padding, zeroY);
+      ctx.lineTo(width - padding, zeroY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    
+    // Disegna la traiettoria
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = TRAJECTORY_STYLE.line;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.shadowColor = TRAJECTORY_STYLE.lineShadow;
+    ctx.shadowBlur = 12;
+    
+    ctx.beginPath();
+    trajectoryData.forEach((point, i) => {
+      const x = padding + ((point.t - minT) / deltaT) * chartWidth;
+      const y = height - padding - ((point.y - minY) / deltaY) * chartHeight;
+      if (i === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    });
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    
+    // Disegna la velocità (con offset per allineare il primo punto)
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = VELOCITY_STYLE.line;
+    ctx.shadowColor = VELOCITY_STYLE.lineShadow;
+    ctx.shadowBlur = 12;
+    
+    ctx.beginPath();
+    velocityData.forEach((point, i) => {
+      const x = padding + ((point.t - minT) / deltaT) * chartWidth;
+      const y = height - padding - ((point.v - minV) / deltaV) * chartHeight + velocityOffset;
+      if (i === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    });
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    
+    // Disegna i punti di campionamento per la traiettoria
+    ctx.fillStyle = TRAJECTORY_STYLE.line;
+    trajectoryData.forEach((point, i) => {
+      if (i % Math.max(1, Math.floor(trajectoryData.length / 25)) === 0 || i === trajectoryData.length - 1) {
+        const x = padding + ((point.t - minT) / deltaT) * chartWidth;
+        const y = height - padding - ((point.y - minY) / deltaY) * chartHeight;
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+    
+    // Disegna i punti di campionamento per la velocità
+    ctx.fillStyle = VELOCITY_STYLE.line;
+    velocityData.forEach((point, i) => {
+      if (i % Math.max(1, Math.floor(velocityData.length / 25)) === 0 || i === velocityData.length - 1) {
+        const x = padding + ((point.t - minT) / deltaT) * chartWidth;
+        const y = height - padding - ((point.v - minV) / deltaV) * chartHeight + velocityOffset;
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+    
+    // Etichette degli assi
+    ctx.fillStyle = TRAJECTORY_STYLE.label;
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('Tempo (s)', width / 2, height - 18);
+    
+    // Etichetta asse Y sinistro (traiettoria)
+    ctx.save();
+    ctx.translate(20, height / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = TRAJECTORY_STYLE.label;
+    ctx.fillText('Altezza (cm)', 0, 0);
+    ctx.restore();
+    
+    // Etichetta asse Y destro (velocità)
+    ctx.save();
+    ctx.translate(width - 20, height / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = VELOCITY_STYLE.label;
+    ctx.fillText('Velocità (cm/s)', 0, 0);
+    ctx.restore();
   }
 
   function clearCanvas(canvas, background) {
@@ -450,11 +1172,15 @@
         </div>
         <div>
           <p class="text-xs text-slate-400 mb-1">Velocità Decollo</p>
-          <p class="text-2xl font-bold text-purple-400">{results.takeoff_velocity} cm/s</p>
+          <p class="text-2xl font-bold text-purple-400">
+            {calculatedTakeoffVelocity > 0 ? Math.round(calculatedTakeoffVelocity * 10) / 10 : (results.takeoff_velocity || 0)} cm/s
+          </p>
         </div>
         <div>
           <p class="text-xs text-slate-400 mb-1">Potenza Est.</p>
-          <p class="text-2xl font-bold text-yellow-400">{results.estimated_power} W</p>
+          <p class="text-2xl font-bold text-yellow-400">
+            {calculatedEstimatedPower > 0 ? Math.round(calculatedEstimatedPower * 10) / 10 : (results.estimated_power || 0)} W
+          </p>
         </div>
       </div>
     </div>
@@ -465,15 +1191,21 @@
       <div class="space-y-3">
         <div class="flex justify-between items-center">
           <span class="text-sm text-slate-400">Tempo Contatto</span>
-          <span class="text-lg font-semibold text-white">{results.contact_time} s</span>
+          <span class="text-lg font-semibold text-white">
+            {calculatedContactTime > 0 ? Math.round(calculatedContactTime * 1000) / 1000 : (results.contact_time || 0)} s
+          </span>
         </div>
         <div class="flex justify-between items-center">
           <span class="text-sm text-slate-400">Fase Eccentrica</span>
-          <span class="text-lg font-semibold text-white">{results.eccentric_time} s</span>
+          <span class="text-lg font-semibold text-white">
+            {calculatedEccentricTime > 0 ? Math.round(calculatedEccentricTime * 1000) / 1000 : (results.eccentric_time || 0)} s
+          </span>
         </div>
         <div class="flex justify-between items-center">
           <span class="text-sm text-slate-400">Fase Concentrica</span>
-          <span class="text-lg font-semibold text-white">{results.concentric_time} s</span>
+          <span class="text-lg font-semibold text-white">
+            {calculatedConcentricTime > 0 ? Math.round(calculatedConcentricTime * 1000) / 1000 : (results.concentric_time || 0)} s
+          </span>
         </div>
         <div class="flex justify-between items-center">
           <span class="text-sm text-slate-400">Tempo Caduta</span>
@@ -488,7 +1220,9 @@
       <div class="space-y-3">
         <div class="flex justify-between items-center">
           <span class="text-sm text-slate-400">Forza Media</span>
-          <span class="text-lg font-semibold text-white">{results.average_force} N</span>
+          <span class="text-lg font-semibold text-white">
+            {calculatedAverageForce > 0 ? Math.round(calculatedAverageForce * 10) / 10 : (results.average_force || 0)} N
+          </span>
         </div>
         <div class="flex justify-between items-center">
           <span class="text-sm text-slate-400">Salto Rilevato</span>
@@ -518,6 +1252,19 @@
         <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Velocità nel Tempo</h3>
         <canvas
           bind:this={velocityCanvas}
+          width="400"
+          height="250"
+          class="w-full rounded-lg"
+        ></canvas>
+      </div>
+    {/if}
+    
+    <!-- Combined Chart -->
+    {#if $appState.trajectoryData.length > 0 && derivedVelocityData.length > 0}
+      <div class="bg-slate-900/50 rounded-xl p-5 border border-slate-700">
+        <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Confronto Traiettoria e Velocità</h3>
+        <canvas
+          bind:this={combinedCanvas}
           width="400"
           height="250"
           class="w-full rounded-lg"
