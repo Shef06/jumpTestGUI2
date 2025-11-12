@@ -780,6 +780,30 @@ def video_frame_at():
     })
 
 
+@app.route('/api/shutdown', methods=['POST'])
+def shutdown():
+    """Chiude il server Flask e termina l'applicazione"""
+    # Ferma tutti i processi attivi prima di chiudere
+    set_state(is_recording=False, is_analyzing=False, is_calibrating=False)
+    
+    # Rilascia le risorse
+    cap = get_state('cap')
+    writer = get_state('video_writer')
+    safe_release(cap)
+    safe_release(writer)
+    
+    # Chiude il server e termina il processo
+    def shutdown_server():
+        import time
+        time.sleep(0.5)  # Dà tempo per inviare la risposta
+        os._exit(0)
+    
+    # Avvia il thread di shutdown in background
+    threading.Thread(target=shutdown_server, daemon=False).start()
+    
+    return jsonify({'success': True, 'message': 'Server in chiusura...'})
+
+
 if __name__ == '__main__':
     import webbrowser
     import threading
