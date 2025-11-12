@@ -1,5 +1,5 @@
 <script>
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher, onMount, onDestroy } from 'svelte';
   import { appState } from './stores.js';
   import { getBackendUrl } from './api.js';
   
@@ -12,6 +12,10 @@
   let trajectoryCanvas;
   let velocityCanvas;
   let combinedCanvas;
+  let fullscreenChart = null; // 'trajectory' | 'velocity' | 'combined' | null
+  let fullscreenTrajectoryCanvas;
+  let fullscreenVelocityCanvas;
+  let fullscreenCombinedCanvas;
   let derivedVelocityData = [];
   let calculatedAverageForce = 0; // Forza media calcolata dalla velocità
   let calculatedTakeoffVelocity = 0; // Velocità decollo calcolata dai grafici
@@ -50,6 +54,13 @@
     if (velocityCanvas && derivedVelocityData.length > 0) {
       drawVelocityChart();
     }
+    
+    // Listener globale per ESC
+    window.addEventListener('keydown', handleKeydown);
+  });
+
+  onDestroy(() => {
+    window.removeEventListener('keydown', handleKeydown);
   });
 
   $: derivedVelocityData = computeDerivedVelocity($appState.trajectoryData);
@@ -664,6 +675,25 @@
     }
   }
 
+  // Reattività per ridisegnare i grafici fullscreen quando si aprono
+  $: if (fullscreenChart === 'trajectory' && fullscreenTrajectoryCanvas && $appState.trajectoryData.length > 0) {
+    const width = Math.floor(window.innerWidth * 0.9);
+    const height = Math.floor(window.innerHeight * 0.8);
+    drawTrajectoryChart(fullscreenTrajectoryCanvas, width, height);
+  }
+
+  $: if (fullscreenChart === 'velocity' && fullscreenVelocityCanvas && derivedVelocityData.length > 0) {
+    const width = Math.floor(window.innerWidth * 0.9);
+    const height = Math.floor(window.innerHeight * 0.8);
+    drawVelocityChart(fullscreenVelocityCanvas, width, height);
+  }
+
+  $: if (fullscreenChart === 'combined' && fullscreenCombinedCanvas && $appState.trajectoryData.length > 0 && derivedVelocityData.length > 0) {
+    const width = Math.floor(window.innerWidth * 0.9);
+    const height = Math.floor(window.innerHeight * 0.8);
+    drawCombinedChart(fullscreenCombinedCanvas, width, height);
+  }
+
   function computeDerivedVelocity(data = []) {
     if (!data || data.length < 2) {
       return [];
@@ -692,15 +722,22 @@
     return [{ t: data[0].t, v: 0 }, ...velocities];
   }
   
-  function drawTrajectoryChart() {
-    const ctx = trajectoryCanvas.getContext('2d');
-    const width = trajectoryCanvas.width;
-    const height = trajectoryCanvas.height;
+  function drawTrajectoryChart(canvas = null, customWidth = null, customHeight = null) {
+    const targetCanvas = canvas || trajectoryCanvas;
+    if (!targetCanvas) return;
+    
+    const ctx = targetCanvas.getContext('2d');
+    const width = customWidth || targetCanvas.width;
+    const height = customHeight || targetCanvas.height;
+    
+    // Imposta le dimensioni se sono state specificate
+    if (customWidth) targetCanvas.width = customWidth;
+    if (customHeight) targetCanvas.height = customHeight;
     const padding = 52;
     const chartWidth = width - 2 * padding;
     const chartHeight = height - 2 * padding;
     
-    clearCanvas(trajectoryCanvas, TRAJECTORY_STYLE.background);
+    clearCanvas(targetCanvas, TRAJECTORY_STYLE.background);
     
     const data = $appState.trajectoryData;
     if (data.length === 0) return;
@@ -877,15 +914,22 @@
     });
   }
   
-  function drawVelocityChart() {
-    const ctx = velocityCanvas.getContext('2d');
-    const width = velocityCanvas.width;
-    const height = velocityCanvas.height;
+  function drawVelocityChart(canvas = null, customWidth = null, customHeight = null) {
+    const targetCanvas = canvas || velocityCanvas;
+    if (!targetCanvas) return;
+    
+    const ctx = targetCanvas.getContext('2d');
+    const width = customWidth || targetCanvas.width;
+    const height = customHeight || targetCanvas.height;
+    
+    // Imposta le dimensioni se sono state specificate
+    if (customWidth) targetCanvas.width = customWidth;
+    if (customHeight) targetCanvas.height = customHeight;
     const padding = 52;
     const chartWidth = width - 2 * padding;
     const chartHeight = height - 2 * padding;
     
-    clearCanvas(velocityCanvas, VELOCITY_STYLE.background);
+    clearCanvas(targetCanvas, VELOCITY_STYLE.background);
     
     const data = derivedVelocityData;
     if (data.length === 0) return;
@@ -1067,15 +1111,22 @@
     });
   }
 
-  function drawCombinedChart() {
-    const ctx = combinedCanvas.getContext('2d');
-    const width = combinedCanvas.width;
-    const height = combinedCanvas.height;
+  function drawCombinedChart(canvas = null, customWidth = null, customHeight = null) {
+    const targetCanvas = canvas || combinedCanvas;
+    if (!targetCanvas) return;
+    
+    const ctx = targetCanvas.getContext('2d');
+    const width = customWidth || targetCanvas.width;
+    const height = customHeight || targetCanvas.height;
+    
+    // Imposta le dimensioni se sono state specificate
+    if (customWidth) targetCanvas.width = customWidth;
+    if (customHeight) targetCanvas.height = customHeight;
     const padding = 52;
     const chartWidth = width - 2 * padding;
     const chartHeight = height - 2 * padding;
     
-    clearCanvas(combinedCanvas, TRAJECTORY_STYLE.background);
+    clearCanvas(targetCanvas, TRAJECTORY_STYLE.background);
     
     const trajectoryData = $appState.trajectoryData;
     const velocityData = derivedVelocityData;
@@ -1363,6 +1414,34 @@
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
 
+  function openFullscreenChart(chartType) {
+    fullscreenChart = chartType;
+    // Ridisegna il grafico a dimensioni maggiori dopo che il DOM è aggiornato
+    setTimeout(() => {
+      const width = Math.floor(window.innerWidth * 0.9);
+      const height = Math.floor(window.innerHeight * 0.8);
+      
+      if (chartType === 'trajectory' && fullscreenTrajectoryCanvas) {
+        drawTrajectoryChart(fullscreenTrajectoryCanvas, width, height);
+      } else if (chartType === 'velocity' && fullscreenVelocityCanvas) {
+        drawVelocityChart(fullscreenVelocityCanvas, width, height);
+      } else if (chartType === 'combined' && fullscreenCombinedCanvas) {
+        drawCombinedChart(fullscreenCombinedCanvas, width, height);
+      }
+    }, 100);
+  }
+
+  function closeFullscreenChart() {
+    fullscreenChart = null;
+  }
+
+  // Gestione tasto ESC per chiudere il modal
+  function handleKeydown(event) {
+    if (event.key === 'Escape' && fullscreenChart) {
+      closeFullscreenChart();
+    }
+  }
+
   function drawGrid(ctx, {
     padding,
     width,
@@ -1595,7 +1674,12 @@
           bind:this={trajectoryCanvas}
           width="400"
           height="250"
-          class="w-full rounded-lg"
+          class="w-full rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+          on:click={() => openFullscreenChart('trajectory')}
+          role="button"
+          tabindex="0"
+          on:keydown={(e) => e.key === 'Enter' && openFullscreenChart('trajectory')}
+          title="Clicca per ingrandire"
         ></canvas>
       </div>
     {/if}
@@ -1608,7 +1692,12 @@
           bind:this={velocityCanvas}
           width="400"
           height="250"
-          class="w-full rounded-lg"
+          class="w-full rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+          on:click={() => openFullscreenChart('velocity')}
+          role="button"
+          tabindex="0"
+          on:keydown={(e) => e.key === 'Enter' && openFullscreenChart('velocity')}
+          title="Clicca per ingrandire"
         ></canvas>
       </div>
     {/if}
@@ -1621,7 +1710,12 @@
           bind:this={combinedCanvas}
           width="400"
           height="250"
-          class="w-full rounded-lg"
+          class="w-full rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+          on:click={() => openFullscreenChart('combined')}
+          role="button"
+          tabindex="0"
+          on:keydown={(e) => e.key === 'Enter' && openFullscreenChart('combined')}
+          title="Clicca per ingrandire"
         ></canvas>
       </div>
     {/if}
@@ -1656,6 +1750,68 @@
       </button>
     </div>
   </div>
+  
+  <!-- Fullscreen Chart Modal -->
+  {#if fullscreenChart}
+    <div 
+      class="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Grafico a schermo intero"
+    >
+      <!-- Backdrop clickable area -->
+      <button
+        class="absolute inset-0 w-full h-full bg-transparent border-0 p-0 cursor-default"
+        on:click={closeFullscreenChart}
+        on:keydown={(e) => e.key === 'Escape' && closeFullscreenChart()}
+        aria-label="Chiudi modal"
+        type="button"
+      ></button>
+      <div 
+        class="relative bg-slate-900 rounded-xl p-6 max-w-[95vw] max-h-[95vh] overflow-auto z-10"
+      >
+        <!-- Close button -->
+        <button
+          on:click={closeFullscreenChart}
+          class="absolute top-4 right-4 text-white hover:text-red-400 transition-colors z-10 bg-slate-800 rounded-full p-2"
+          aria-label="Chiudi"
+        >
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+        
+        <!-- Chart title -->
+        <h3 class="text-lg font-semibold text-white mb-4">
+          {#if fullscreenChart === 'trajectory'}
+            Traiettoria del Salto
+          {:else if fullscreenChart === 'velocity'}
+            Velocità nel Tempo
+          {:else if fullscreenChart === 'combined'}
+            Confronto Traiettoria e Velocità
+          {/if}
+        </h3>
+        
+        <!-- Fullscreen canvas -->
+        {#if fullscreenChart === 'trajectory'}
+          <canvas
+            bind:this={fullscreenTrajectoryCanvas}
+            class="rounded-lg"
+          ></canvas>
+        {:else if fullscreenChart === 'velocity'}
+          <canvas
+            bind:this={fullscreenVelocityCanvas}
+            class="rounded-lg"
+          ></canvas>
+        {:else if fullscreenChart === 'combined'}
+          <canvas
+            bind:this={fullscreenCombinedCanvas}
+            class="rounded-lg"
+          ></canvas>
+        {/if}
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
