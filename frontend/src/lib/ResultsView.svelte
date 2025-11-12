@@ -9,6 +9,7 @@
   
   let trajectoryCanvas;
   let velocityCanvas;
+  let derivedVelocityData = [];
   
   const GRID_STEPS = 5;
   const TRAJECTORY_STYLE = {
@@ -37,10 +38,12 @@
     if (trajectoryCanvas && $appState.trajectoryData.length > 0) {
       drawTrajectoryChart();
     }
-    if (velocityCanvas && $appState.velocityData.length > 0) {
+    if (velocityCanvas && derivedVelocityData.length > 0) {
       drawVelocityChart();
     }
   });
+
+  $: derivedVelocityData = computeDerivedVelocity($appState.trajectoryData);
   
   $: if (trajectoryCanvas) {
     if ($appState.trajectoryData.length > 0) {
@@ -51,11 +54,39 @@
   }
   
   $: if (velocityCanvas) {
-    if ($appState.velocityData.length > 0) {
+    if (derivedVelocityData.length > 0) {
       drawVelocityChart();
     } else {
       clearCanvas(velocityCanvas, VELOCITY_STYLE.background);
     }
+  }
+
+  function computeDerivedVelocity(data = []) {
+    if (!data || data.length < 2) {
+      return [];
+    }
+
+    const velocities = [];
+    for (let i = 1; i < data.length; i++) {
+      const prev = data[i - 1];
+      const curr = data[i];
+      const deltaT = curr.t - prev.t;
+      if (!isFinite(deltaT) || deltaT === 0) {
+        continue;
+      }
+      const deltaY = curr.y - prev.y;
+      velocities.push({
+        t: curr.t,
+        v: deltaY / deltaT
+      });
+    }
+
+    if (velocities.length === 0) {
+      return [];
+    }
+
+    // Aggiungi un punto iniziale a 0 per rendere più chiaro il grafico
+    return [{ t: velocities[0].t, v: 0 }, ...velocities];
   }
   
   function drawTrajectoryChart() {
@@ -161,7 +192,7 @@
     
     clearCanvas(velocityCanvas, VELOCITY_STYLE.background);
     
-    const data = $appState.velocityData;
+    const data = derivedVelocityData;
     if (data.length === 0) return;
     
     const maxT = Math.max(...data.map(d => d.t));
@@ -482,7 +513,7 @@
     {/if}
     
     <!-- Velocity Chart -->
-    {#if $appState.velocityData.length > 0}
+    {#if derivedVelocityData.length > 0}
       <div class="bg-slate-900/50 rounded-xl p-5 border border-slate-700">
         <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Velocità nel Tempo</h3>
         <canvas
