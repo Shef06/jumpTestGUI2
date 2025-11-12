@@ -193,7 +193,35 @@
       localVideoUrl: null
     });
     
-    try { window.close(); } catch (e) {}
+    // Chiude il backend
+    try {
+      // Usa fetch con timeout breve e ignora errori di rete
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 1000);
+      
+      await fetch(`${getBackendUrl()}/api/shutdown`, { 
+        method: 'POST',
+        signal: controller.signal
+      }).catch(() => {
+        // Ignora errori se il server si è già chiuso o non risponde
+      });
+      
+      clearTimeout(timeoutId);
+    } catch (e) {
+      // Ignora errori se il server si è già chiuso
+    }
+    
+    // Chiude la finestra del browser
+    try { 
+      window.close(); 
+    } catch (e) {
+      // Se window.close() non funziona (alcuni browser lo bloccano),
+      // mostra un messaggio all'utente
+      if (confirm('L\'applicazione è stata chiusa. Puoi chiudere manualmente questa finestra.')) {
+        // Fallback: prova a navigare via
+        window.location.href = 'about:blank';
+      }
+    }
   }
 
   function handleReset() {
@@ -282,7 +310,7 @@
       <div class="flex items-center justify-between">
         <h1 class="text-4xl font-bold text-white tracking-tight">Jump Analyzer Pro</h1>
         <button on:click={cancelAndExit} class="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded-lg font-semibold border border-red-500/50 shadow-md transition-colors">
-          Chiudi Analisi
+          Chiudi
         </button>
       </div>
     </div>

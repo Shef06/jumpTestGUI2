@@ -415,7 +415,7 @@
   <div class="step-header bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-4">
     <div class="flex justify-between items-center">
       <div>
-        <h2 class="text-xl font-semibold text-white">Step Holder</h2>
+        <h2 class="text-xl font-semibold text-white">Steps</h2>
         <p class="text-purple-100 text-sm mt-1">Step {currentStep} di 3</p>
       </div>
       {#if currentStep > 1 || $appState.isCameraPreview}
