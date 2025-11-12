@@ -1,2 +1,5 @@
 .vite/
 __pycache__/
+uploads/
+.cph/
+node_modules/
