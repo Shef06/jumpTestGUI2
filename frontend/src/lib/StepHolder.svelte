@@ -314,7 +314,23 @@
   }
 
   function goBack() {
-    dispatch('goBack');
+    // Se siamo nello Step 1 con anteprima telecamera attiva, torna alla scelta iniziale
+    if (currentStep === 1 && $appState.isCameraPreview) {
+      goBackFromCameraPreview();
+    } else {
+      dispatch('goBack');
+    }
+  }
+
+  async function goBackFromCameraPreview() {
+    // Stop the preview stream
+    try {
+      stopStream($appState.previewStream);
+    } catch (e) {}
+    clearPreviewStream();
+    setCameraPreview(false);
+    setInputMode('none');
+    selectedCamera = null;
   }
 
   async function startAnalysisFromStep2() {
@@ -402,7 +418,7 @@
         <h2 class="text-xl font-semibold text-white">Step Holder</h2>
         <p class="text-purple-100 text-sm mt-1">Step {currentStep} di 3</p>
       </div>
-      {#if currentStep > 1}
+      {#if currentStep > 1 || $appState.isCameraPreview}
         <button
           on:click={goBack}
           class="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg transition-all duration-200 flex items-center gap-2"

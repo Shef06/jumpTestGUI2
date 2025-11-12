@@ -282,7 +282,7 @@
       <div class="flex items-center justify-between">
         <h1 class="text-4xl font-bold text-white tracking-tight">Jump Analyzer Pro</h1>
         <button on:click={cancelAndExit} class="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded-lg font-semibold border border-red-500/50 shadow-md transition-colors">
-          Annulla Analisi
+          Chiudi Analisi
         </button>
       </div>
     </div>
