@@ -563,31 +563,35 @@ def analysis_loop():
                     if analyzer.jump_started:
                         cv2.putText(image, "SALTO IN CORSO!", (10, 40),
                                     cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
-                        cv2.putText(image, f"Altezza: {current_height:.1f} cm", (10, 90),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-                        
-                        # Update data (con sampling per ridurre carico)
-                        t_seconds = analyzer.current_frame / max(1, analyzer.fps)
-                        
-                        traj_data = get_state('trajectory_data')
-                        traj_data.append({'t': round(t_seconds, 3), 'y': round(current_height, 2)})
-                        set_state(trajectory_data=traj_data)
-                        
-                        if len(analyzer.hip_velocities) > 0:
-                            vel_data = get_state('velocity_data')
-                            vel_data.append({
-                                't': round(t_seconds, 3),
-                                'v': round(analyzer.hip_velocities[-1], 2)
-                            })
-                            set_state(velocity_data=vel_data)
-                        
-                        body_mass = get_state('body_mass_kg')
-                        set_state(realtime_data={
-                            'current_height': round(current_height, 1),
-                            'max_height': round(analyzer.max_jump_height_cm, 1),
-                            'takeoff_velocity': round(analyzer.get_takeoff_velocity(), 1),
-                            'estimated_power': round(analyzer.get_estimated_power(body_mass), 1)
+                    else:
+                        cv2.putText(image, "FASE PREPARATORIA", (10, 40),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 215, 0), 3)
+
+                    cv2.putText(image, f"Altezza: {current_height:.1f} cm", (10, 90),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                    
+                    # Update data (con sampling per ridurre carico)
+                    t_seconds = analyzer.current_frame / max(1, analyzer.fps)
+                    
+                    traj_data = get_state('trajectory_data')
+                    traj_data.append({'t': round(t_seconds, 3), 'y': round(current_height, 2)})
+                    set_state(trajectory_data=traj_data)
+                    
+                    if len(analyzer.hip_velocities) > 0:
+                        vel_data = get_state('velocity_data')
+                        vel_data.append({
+                            't': round(t_seconds, 3),
+                            'v': round(analyzer.hip_velocities[-1], 2)
                         })
+                        set_state(velocity_data=vel_data)
+                    
+                    body_mass = get_state('body_mass_kg')
+                    set_state(realtime_data={
+                        'current_height': round(current_height, 1),
+                        'max_height': round(analyzer.max_jump_height_cm, 1),
+                        'takeoff_velocity': round(analyzer.get_takeoff_velocity(), 1),
+                        'estimated_power': round(analyzer.get_estimated_power(body_mass), 1)
+                    })
             
             # Update frame (rate limited)
             current_time = time.time()

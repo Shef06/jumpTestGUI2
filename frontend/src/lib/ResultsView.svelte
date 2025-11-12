@@ -10,6 +10,29 @@
   let trajectoryCanvas;
   let velocityCanvas;
   
+  const GRID_STEPS = 5;
+  const TRAJECTORY_STYLE = {
+    background: '#0f172a',
+    grid: '#233044',
+    axis: '#3c4b63',
+    line: '#38bdf8',
+    lineShadow: 'rgba(56, 189, 248, 0.35)',
+    fill: 'rgba(56, 189, 248, 0.18)',
+    label: '#94a3b8',
+    zero: '#64748b'
+  };
+  const VELOCITY_STYLE = {
+    background: '#121e33',
+    grid: '#24324a',
+    axis: '#3f4d66',
+    line: '#c084fc',
+    lineShadow: 'rgba(192, 132, 252, 0.35)',
+    fillAbove: 'rgba(192, 132, 252, 0.18)',
+    fillBelow: 'rgba(148, 163, 184, 0.12)',
+    label: '#a5b4fc',
+    zero: '#64748b'
+  };
+  
   onMount(() => {
     if (trajectoryCanvas && $appState.trajectoryData.length > 0) {
       drawTrajectoryChart();
@@ -19,140 +42,328 @@
     }
   });
   
+  $: if (trajectoryCanvas) {
+    if ($appState.trajectoryData.length > 0) {
+      drawTrajectoryChart();
+    } else {
+      clearCanvas(trajectoryCanvas, TRAJECTORY_STYLE.background);
+    }
+  }
+  
+  $: if (velocityCanvas) {
+    if ($appState.velocityData.length > 0) {
+      drawVelocityChart();
+    } else {
+      clearCanvas(velocityCanvas, VELOCITY_STYLE.background);
+    }
+  }
+  
   function drawTrajectoryChart() {
     const ctx = trajectoryCanvas.getContext('2d');
     const width = trajectoryCanvas.width;
     const height = trajectoryCanvas.height;
+    const padding = 52;
+    const chartWidth = width - 2 * padding;
+    const chartHeight = height - 2 * padding;
     
-    // Clear
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(0, 0, width, height);
+    clearCanvas(trajectoryCanvas, TRAJECTORY_STYLE.background);
     
     const data = $appState.trajectoryData;
     if (data.length === 0) return;
     
-    // Find bounds
     const maxT = Math.max(...data.map(d => d.t));
+    const minT = Math.min(...data.map(d => d.t));
     const maxY = Math.max(...data.map(d => d.y));
     const minY = Math.min(...data.map(d => d.y));
+    const deltaT = maxT === minT ? 1 : (maxT - minT);
+    const deltaY = maxY === minY ? 1 : (maxY - minY);
     
-    const padding = 40;
-    const chartWidth = width - 2 * padding;
-    const chartHeight = height - 2 * padding;
+    drawGrid(ctx, {
+      padding,
+      width,
+      height,
+      chartWidth,
+      chartHeight,
+      minT,
+      deltaT,
+      minY,
+      deltaY,
+      style: TRAJECTORY_STYLE,
+      xFormatter: (value) => value.toFixed(2),
+      yFormatter: (value) => value.toFixed(1)
+    });
     
-    // Draw axes
-    ctx.strokeStyle = '#475569';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(padding, padding);
-    ctx.lineTo(padding, height - padding);
-    ctx.lineTo(width - padding, height - padding);
-    ctx.stroke();
-    
-    // Draw grid
-    ctx.strokeStyle = '#334155';
-    ctx.lineWidth = 1;
-    for (let i = 0; i <= 5; i++) {
-      const y = padding + (chartHeight * i / 5);
+    if (minY <= 0 && maxY >= 0) {
+      const zeroY = height - padding - ((0 - minY) / deltaY) * chartHeight;
+      ctx.strokeStyle = TRAJECTORY_STYLE.zero;
+      ctx.setLineDash([6, 6]);
       ctx.beginPath();
-      ctx.moveTo(padding, y);
-      ctx.lineTo(width - padding, y);
+      ctx.moveTo(padding, zeroY);
+      ctx.lineTo(width - padding, zeroY);
       ctx.stroke();
+      ctx.setLineDash([]);
     }
     
-    // Draw data
-    ctx.strokeStyle = '#3b82f6';
     ctx.lineWidth = 3;
-    ctx.beginPath();
+    ctx.strokeStyle = TRAJECTORY_STYLE.line;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.shadowColor = TRAJECTORY_STYLE.lineShadow;
+    ctx.shadowBlur = 12;
     
+    ctx.beginPath();
     data.forEach((point, i) => {
-      const x = padding + (point.t / maxT) * chartWidth;
-      const y = height - padding - ((point.y - minY) / (maxY - minY)) * chartHeight;
-      
+      const x = padding + ((point.t - minT) / deltaT) * chartWidth;
+      const y = height - padding - ((point.y - minY) / deltaY) * chartHeight;
       if (i === 0) {
         ctx.moveTo(x, y);
       } else {
         ctx.lineTo(x, y);
       }
     });
-    
     ctx.stroke();
     
-    // Labels
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '12px sans-serif';
-    ctx.fillText('Tempo (s)', width / 2 - 30, height - 10);
-    ctx.save();
-    ctx.translate(15, height / 2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.fillText('Altezza (cm)', 0, 0);
-    ctx.restore();
+    ctx.shadowBlur = 0;
+    ctx.lineTo(padding + chartWidth, height - padding);
+    ctx.lineTo(padding, height - padding);
+    ctx.closePath();
+    ctx.fillStyle = TRAJECTORY_STYLE.fill;
+    ctx.fill();
+    
+    ctx.fillStyle = TRAJECTORY_STYLE.line;
+    data.forEach((point, i) => {
+      if (i % Math.max(1, Math.floor(data.length / 25)) === 0 || i === data.length - 1) {
+        const x = padding + ((point.t - minT) / deltaT) * chartWidth;
+        const y = height - padding - ((point.y - minY) / deltaY) * chartHeight;
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+    
+    drawLabels(ctx, {
+      width,
+      height,
+      padding,
+      xText: 'Tempo (s)',
+      yText: 'Altezza (cm)',
+      style: TRAJECTORY_STYLE
+    });
   }
   
   function drawVelocityChart() {
     const ctx = velocityCanvas.getContext('2d');
     const width = velocityCanvas.width;
     const height = velocityCanvas.height;
+    const padding = 52;
+    const chartWidth = width - 2 * padding;
+    const chartHeight = height - 2 * padding;
     
-    // Clear
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(0, 0, width, height);
+    clearCanvas(velocityCanvas, VELOCITY_STYLE.background);
     
     const data = $appState.velocityData;
     if (data.length === 0) return;
     
-    // Find bounds
     const maxT = Math.max(...data.map(d => d.t));
-    const maxV = Math.max(...data.map(d => Math.abs(d.v)));
+    const minT = Math.min(...data.map(d => d.t));
+    const maxV = Math.max(...data.map(d => d.v));
+    const minV = Math.min(...data.map(d => d.v));
+    const deltaT = maxT === minT ? 1 : (maxT - minT);
+    const deltaV = maxV === minV ? (Math.abs(maxV) || 1) : (maxV - minV);
     
-    const padding = 40;
-    const chartWidth = width - 2 * padding;
-    const chartHeight = height - 2 * padding;
+    drawGrid(ctx, {
+      padding,
+      width,
+      height,
+      chartWidth,
+      chartHeight,
+      minT,
+      deltaT,
+      minY: minV,
+      deltaY: deltaV,
+      style: VELOCITY_STYLE,
+      xFormatter: (value) => value.toFixed(2),
+      yFormatter: (value) => value.toFixed(1),
+      invertYLabel: false,
+      rightSideLabels: true
+    });
     
-    // Draw axes
-    ctx.strokeStyle = '#475569';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(padding, padding);
-    ctx.lineTo(padding, height - padding);
-    ctx.lineTo(width - padding, height - padding);
-    ctx.stroke();
+    if (minV <= 0 && maxV >= 0) {
+      const zeroY = height - padding - ((0 - minV) / deltaV) * chartHeight;
+      ctx.strokeStyle = VELOCITY_STYLE.zero;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath();
+      ctx.moveTo(padding, zeroY);
+      ctx.lineTo(width - padding, zeroY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
     
-    // Zero line
-    const zeroY = height - padding - (chartHeight / 2);
-    ctx.strokeStyle = '#64748b';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(padding, zeroY);
-    ctx.lineTo(width - padding, zeroY);
-    ctx.stroke();
-    
-    // Draw data
-    ctx.strokeStyle = '#a855f7';
     ctx.lineWidth = 3;
-    ctx.beginPath();
+    ctx.strokeStyle = VELOCITY_STYLE.line;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.shadowColor = VELOCITY_STYLE.lineShadow;
+    ctx.shadowBlur = 12;
     
+    const pathPoints = [];
+    ctx.beginPath();
     data.forEach((point, i) => {
-      const x = padding + (point.t / maxT) * chartWidth;
-      const y = zeroY - (point.v / maxV) * (chartHeight / 2);
-      
+      const x = padding + ((point.t - minT) / deltaT) * chartWidth;
+      const y = height - padding - ((point.v - minV) / deltaV) * chartHeight;
+      pathPoints.push({ x, y });
       if (i === 0) {
         ctx.moveTo(x, y);
       } else {
         ctx.lineTo(x, y);
       }
     });
-    
     ctx.stroke();
+    ctx.shadowBlur = 0;
     
-    // Labels
-    ctx.fillStyle = '#94a3b8';
+    fillVelocityAreas(ctx, pathPoints, {
+      padding,
+      height,
+      minV,
+      deltaV,
+      chartHeight,
+      style: VELOCITY_STYLE
+    });
+    
+    ctx.fillStyle = VELOCITY_STYLE.line;
+    pathPoints.forEach((point, i) => {
+      if (i % Math.max(1, Math.floor(pathPoints.length / 25)) === 0 || i === pathPoints.length - 1) {
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+    
+    drawLabels(ctx, {
+      width,
+      height,
+      padding,
+      xText: 'Tempo (s)',
+      yText: 'Velocità (cm/s)',
+      style: VELOCITY_STYLE
+    });
+  }
+
+  function clearCanvas(canvas, background) {
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = background;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  function drawGrid(ctx, {
+    padding,
+    width,
+    height,
+    chartWidth,
+    chartHeight,
+    minT,
+    deltaT,
+    minY,
+    deltaY,
+    style,
+    xFormatter,
+    yFormatter,
+    invertYLabel = true,
+    rightSideLabels = false
+  }) {
+    ctx.strokeStyle = style.axis;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(padding, padding);
+    ctx.lineTo(padding, height - padding);
+    ctx.lineTo(width - padding, height - padding);
+    ctx.stroke();
+
+    ctx.strokeStyle = style.grid;
+    ctx.lineWidth = 1;
+    ctx.fillStyle = style.label;
+    ctx.font = '11px sans-serif';
+    ctx.textBaseline = 'middle';
+
+    for (let i = 0; i <= GRID_STEPS; i++) {
+      const ratio = i / GRID_STEPS;
+      const y = padding + (chartHeight * ratio);
+      const value = invertYLabel
+        ? (minY + (deltaY * (GRID_STEPS - i) / GRID_STEPS))
+        : (minY + (deltaY * i / GRID_STEPS));
+
+      ctx.beginPath();
+      ctx.moveTo(padding, y);
+      ctx.lineTo(width - padding, y);
+      ctx.stroke();
+
+      const label = yFormatter(value);
+      const labelX = rightSideLabels ? width - padding + 12 : padding - 12;
+      const align = rightSideLabels ? 'left' : 'right';
+      ctx.textAlign = align;
+      ctx.fillText(label, labelX, y);
+    }
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (let i = 0; i <= GRID_STEPS; i++) {
+      const ratio = i / GRID_STEPS;
+      const x = padding + (chartWidth * ratio);
+      const value = minT + (deltaT * ratio);
+
+      ctx.beginPath();
+      ctx.moveTo(x, padding);
+      ctx.lineTo(x, height - padding);
+      ctx.stroke();
+
+      const label = xFormatter(value);
+      ctx.fillText(label, x, height - padding + 12);
+    }
+  }
+
+  function drawLabels(ctx, { width, height, padding, xText, yText, style }) {
+    ctx.fillStyle = style.label;
     ctx.font = '12px sans-serif';
-    ctx.fillText('Tempo (s)', width / 2 - 30, height - 10);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(xText, width / 2, height - 18);
     ctx.save();
-    ctx.translate(15, height / 2);
+    ctx.translate(20, height / 2);
     ctx.rotate(-Math.PI / 2);
-    ctx.fillText('Velocità (cm/s)', 0, 0);
+    ctx.textAlign = 'center';
+    ctx.fillText(yText, 0, 0);
+    ctx.restore();
+  }
+
+  function fillVelocityAreas(ctx, points, { padding, height, minV, deltaV, chartHeight, style }) {
+    if (points.length < 2) return;
+
+    const leftX = points[0].x;
+    const rightX = points[points.length - 1].x;
+    const zeroRatio = (0 - minV) / deltaV;
+    const zeroY = height - padding - zeroRatio * chartHeight;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(leftX, height - padding);
+    points.forEach(point => ctx.lineTo(point.x, point.y));
+    ctx.lineTo(rightX, height - padding);
+    ctx.closePath();
+    ctx.clip();
+
+    if (zeroRatio <= 0) {
+      ctx.fillStyle = style.fillAbove;
+      ctx.fillRect(leftX, padding, rightX - leftX, height - padding);
+    } else if (zeroRatio >= 1) {
+      ctx.fillStyle = style.fillBelow;
+      ctx.fillRect(leftX, padding, rightX - leftX, height - padding);
+    } else {
+      ctx.fillStyle = style.fillAbove;
+      ctx.fillRect(leftX, padding, rightX - leftX, zeroY - padding);
+      ctx.fillStyle = style.fillBelow;
+      ctx.fillRect(leftX, zeroY, rightX - leftX, height - padding - (zeroY - padding));
+    }
     ctx.restore();
   }
   
