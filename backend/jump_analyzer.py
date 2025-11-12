@@ -22,6 +22,7 @@ class JumpAnalyzer:
         self.landing_frame = None
         self.current_frame = 0
         self.hip_positions = []
+        self.center_of_mass_trajectory_cm = []
         self.calibration_frames = []
         self.pixel_to_cm_ratio = None
         self.calibrated_with_height = False
@@ -141,21 +142,20 @@ class JumpAnalyzer:
             return frames_falling / self.fps
         return 0
 
-    def calculate_velocity(self, current_hip_y):
-        """Calcola la velocità del baricentro in cm/s"""
-        if len(self.hip_positions) < 2 or not self.pixel_to_cm_ratio:
+    def calculate_velocity(self, current_center_of_mass_cm):
+        """Calcola la velocità del baricentro in cm/s lungo la sua traiettoria"""
+        if not self.pixel_to_cm_ratio or self.fps <= 0:
             return 0.0
         
-        # Calcola differenza di posizione tra frame corrente e precedente
-        # Movimento verso l'alto (y diminuisce) è positivo
-        delta_y_pixels = self.hip_positions[-1] - current_hip_y
-        delta_t = 1.0 / self.fps  # Tempo tra frame
-        
-        # Converte da pixel a cm
-        delta_y_cm = delta_y_pixels * self.pixel_to_cm_ratio
-        velocity_cm_s = delta_y_cm / delta_t
-        
-        return velocity_cm_s
+        trajectory_cm = self.center_of_mass_trajectory_cm + [current_center_of_mass_cm]
+
+        if len(trajectory_cm) < 2:
+            return 0.0
+
+        time_axis = np.arange(len(trajectory_cm), dtype=float) / float(self.fps)
+        velocity_series = np.gradient(trajectory_cm, time_axis, edge_order=1 if len(trajectory_cm) < 3 else 2)
+
+        return float(velocity_series[-1])
 
     def detect_contact_phases(self, current_hip_y, velocity):
         """Rileva le fasi di contatto e le transizioni eccentrica-concentrica"""
@@ -270,33 +270,38 @@ class JumpAnalyzer:
     def process_frame(self, hip_y):
         """Processa un singolo frame"""
         self.current_frame += 1
-        self.hip_positions.append(hip_y)
-
+        
         # Fase di calibrazione baseline
         if self.baseline_hip_y is None and self.calibrated_with_height:
             calibrated = self.calibrate_baseline(hip_y)
             if calibrated:
+                self.hip_positions = []
+                self.center_of_mass_trajectory_cm = []
+                self.hip_velocities = []
                 return "pronto", None
             return "calibrazione_baseline", None
 
         if not self.calibrated_with_height:
             return "attesa_calibrazione", None
 
+        self.hip_positions.append(hip_y)
+
         # Rileva inizio e fine salto
         self.detect_jump_start(hip_y)
         self.detect_jump_end(hip_y)
 
+        # Calcola altezza corrente
+        current_height_pixels = self.baseline_hip_y - hip_y if self.baseline_hip_y is not None else 0
+        current_height_cm = current_height_pixels * self.pixel_to_cm_ratio if self.pixel_to_cm_ratio else 0
+
         # Calcola velocità e rileva fasi
-        velocity = self.calculate_velocity(hip_y)
+        velocity = self.calculate_velocity(current_height_cm)
         self.hip_velocities.append(velocity)
         self.detect_contact_phases(hip_y, velocity)
 
-        # Aggiorna altezza massima
+        # Aggiorna altezza massima e traiettoria del baricentro
         self.update_jump_height(hip_y)
-
-        # Calcola altezza corrente
-        current_height_pixels = self.baseline_hip_y - hip_y if self.baseline_hip_y else 0
-        current_height_cm = current_height_pixels * self.pixel_to_cm_ratio if self.pixel_to_cm_ratio else 0
+        self.center_of_mass_trajectory_cm.append(current_height_cm)
 
         return "analisi", current_height_cm
 
@@ -319,6 +324,7 @@ class JumpAnalyzer:
         self.current_frame = 0
         self.hip_positions = []
         self.calibration_frames = []
+        self.center_of_mass_trajectory_cm = []
         
         # Reset nuove variabili per analisi fasi
         self.hip_velocities = []
