@@ -507,6 +507,84 @@
     return maxPower;
   }
   
+  // Funzione helper per ottenere i tempi delle fasi
+  function getPhaseTimes(trajectoryData, velocityData) {
+    if (!trajectoryData || trajectoryData.length < 2 || !velocityData || velocityData.length < 2) {
+      return null;
+    }
+    
+    let baselineHeight = trajectoryData[0]?.y || 0;
+    let contactStartTime = null;
+    let eccentricStartTime = null;
+    let eccentricEndTime = null;
+    let concentricStartTime = null;
+    let concentricEndTime = null;
+    let takeoffTime = null;
+    
+    // Trova inizio contatto / inizio fase eccentrica
+    for (let i = 0; i < velocityData.length; i++) {
+      if (velocityData[i].v < 0 && contactStartTime === null) {
+        const heightAtTime = trajectoryData.find(t => Math.abs(t.t - velocityData[i].t) < 0.01);
+        if (heightAtTime && heightAtTime.y < baselineHeight) {
+          contactStartTime = velocityData[i].t;
+          eccentricStartTime = velocityData[i].t;
+          break;
+        } else if (heightAtTime === undefined) {
+          contactStartTime = velocityData[i].t;
+          eccentricStartTime = velocityData[i].t;
+          break;
+        }
+      }
+    }
+    
+    // Trova fine fase eccentrica (minimo velocità)
+    let minVelocity = Infinity;
+    let minVelocityIndex = -1;
+    for (let i = 0; i < velocityData.length; i++) {
+      if (velocityData[i].v < minVelocity) {
+        minVelocity = velocityData[i].v;
+        minVelocityIndex = i;
+      }
+    }
+    if (minVelocityIndex >= 0) {
+      eccentricEndTime = velocityData[minVelocityIndex].t;
+      concentricStartTime = velocityData[minVelocityIndex].t;
+    }
+    
+    // Trova fine fase concentrica / decollo
+    let minHeight = Infinity;
+    let minHeightIndex = -1;
+    for (let i = 0; i < trajectoryData.length; i++) {
+      if (trajectoryData[i].y < minHeight) {
+        minHeight = trajectoryData[i].y;
+        minHeightIndex = i;
+      }
+    }
+    
+    if (minHeightIndex >= 0) {
+      for (let i = minHeightIndex + 1; i < trajectoryData.length; i++) {
+        if (trajectoryData[i].y >= baselineHeight) {
+          const velocityAtTime = velocityData.find(v => Math.abs(v.t - trajectoryData[i].t) < 0.01);
+          if (velocityAtTime && velocityAtTime.v > 0) {
+            takeoffTime = trajectoryData[i].t;
+            concentricEndTime = trajectoryData[i].t;
+            break;
+          }
+        }
+      }
+    }
+    
+    return {
+      contactStart: contactStartTime,
+      contactEnd: takeoffTime,
+      eccentricStart: eccentricStartTime,
+      eccentricEnd: eccentricEndTime,
+      concentricStart: concentricStartTime,
+      concentricEnd: concentricEndTime,
+      takeoff: takeoffTime
+    };
+  }
+  
   // Calcola la velocità di decollo quando i dati cambiano
   $: if (derivedVelocityData.length > 0 && $appState.trajectoryData.length > 0) {
     calculatedTakeoffVelocity = calculateTakeoffVelocity(
@@ -634,6 +712,9 @@
     const deltaT = maxT === minT ? 1 : (maxT - minT);
     const deltaY = maxY === minY ? 1 : (maxY - minY);
     
+    // Ottieni i tempi delle fasi
+    const phaseTimes = getPhaseTimes(data, derivedVelocityData);
+    
     drawGrid(ctx, {
       padding,
       width,
@@ -658,6 +739,25 @@
       ctx.lineTo(width - padding, zeroY);
       ctx.stroke();
       ctx.setLineDash([]);
+    }
+    
+    // Disegna le aree colorate per le fasi (sotto la linea)
+    if (phaseTimes) {
+      // Area fase eccentrica
+      if (phaseTimes.eccentricStart !== null && phaseTimes.eccentricEnd !== null) {
+        const x1 = padding + ((phaseTimes.eccentricStart - minT) / deltaT) * chartWidth;
+        const x2 = padding + ((phaseTimes.eccentricEnd - minT) / deltaT) * chartWidth;
+        ctx.fillStyle = 'rgba(255, 165, 0, 0.15)';
+        ctx.fillRect(x1, padding, x2 - x1, chartHeight);
+      }
+      
+      // Area fase concentrica
+      if (phaseTimes.concentricStart !== null && phaseTimes.concentricEnd !== null) {
+        const x1 = padding + ((phaseTimes.concentricStart - minT) / deltaT) * chartWidth;
+        const x2 = padding + ((phaseTimes.concentricEnd - minT) / deltaT) * chartWidth;
+        ctx.fillStyle = 'rgba(0, 255, 0, 0.15)';
+        ctx.fillRect(x1, padding, x2 - x1, chartHeight);
+      }
     }
     
     ctx.lineWidth = 3;
@@ -697,6 +797,76 @@
       }
     });
     
+    // Disegna le linee di riferimento per le fasi
+    if (phaseTimes) {
+      const markerColors = {
+        contact: 'rgba(255, 255, 0, 0.7)',      // Giallo per contatto
+        eccentric: 'rgba(255, 165, 0, 0.7)',   // Arancione per eccentrica
+        concentric: 'rgba(0, 255, 0, 0.7)',     // Verde per concentrica
+        takeoff: 'rgba(255, 0, 0, 0.7)'        // Rosso per decollo
+      };
+      
+      // Linea inizio contatto / inizio eccentrica
+      if (phaseTimes.contactStart !== null) {
+        const x = padding + ((phaseTimes.contactStart - minT) / deltaT) * chartWidth;
+        ctx.strokeStyle = markerColors.contact;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(x, padding);
+        ctx.lineTo(x, height - padding);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // Etichetta
+        ctx.fillStyle = markerColors.contact;
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText('Inizio Contatto', x, padding + 2);
+      }
+      
+      // Linea fine eccentrica / inizio concentrica
+      if (phaseTimes.eccentricEnd !== null) {
+        const x = padding + ((phaseTimes.eccentricEnd - minT) / deltaT) * chartWidth;
+        ctx.strokeStyle = markerColors.eccentric;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(x, padding);
+        ctx.lineTo(x, height - padding);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // Etichetta
+        ctx.fillStyle = markerColors.eccentric;
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText('Fine Eccentrica', x, padding + 14);
+      }
+      
+      // Linea decollo / fine concentrica
+      if (phaseTimes.takeoff !== null) {
+        const x = padding + ((phaseTimes.takeoff - minT) / deltaT) * chartWidth;
+        ctx.strokeStyle = markerColors.takeoff;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(x, padding);
+        ctx.lineTo(x, height - padding);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // Etichetta
+        ctx.fillStyle = markerColors.takeoff;
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText('Decollo', x, padding + 26);
+      }
+    }
+    
     drawLabels(ctx, {
       width,
       height,
@@ -727,6 +897,9 @@
     const deltaT = maxT === minT ? 1 : (maxT - minT);
     const deltaV = maxV === minV ? (Math.abs(maxV) || 1) : (maxV - minV);
     
+    // Ottieni i tempi delle fasi
+    const phaseTimes = getPhaseTimes($appState.trajectoryData, data);
+    
     drawGrid(ctx, {
       padding,
       width,
@@ -753,6 +926,25 @@
       ctx.lineTo(width - padding, zeroY);
       ctx.stroke();
       ctx.setLineDash([]);
+    }
+    
+    // Disegna le aree colorate per le fasi (sotto la linea)
+    if (phaseTimes) {
+      // Area fase eccentrica
+      if (phaseTimes.eccentricStart !== null && phaseTimes.eccentricEnd !== null) {
+        const x1 = padding + ((phaseTimes.eccentricStart - minT) / deltaT) * chartWidth;
+        const x2 = padding + ((phaseTimes.eccentricEnd - minT) / deltaT) * chartWidth;
+        ctx.fillStyle = 'rgba(255, 165, 0, 0.15)';
+        ctx.fillRect(x1, padding, x2 - x1, chartHeight);
+      }
+      
+      // Area fase concentrica
+      if (phaseTimes.concentricStart !== null && phaseTimes.concentricEnd !== null) {
+        const x1 = padding + ((phaseTimes.concentricStart - minT) / deltaT) * chartWidth;
+        const x2 = padding + ((phaseTimes.concentricEnd - minT) / deltaT) * chartWidth;
+        ctx.fillStyle = 'rgba(0, 255, 0, 0.15)';
+        ctx.fillRect(x1, padding, x2 - x1, chartHeight);
+      }
     }
     
     ctx.lineWidth = 3;
@@ -794,6 +986,76 @@
         ctx.fill();
       }
     });
+    
+    // Disegna le linee di riferimento per le fasi
+    if (phaseTimes) {
+      const markerColors = {
+        contact: 'rgba(255, 255, 0, 0.7)',      // Giallo per contatto
+        eccentric: 'rgba(255, 165, 0, 0.7)',   // Arancione per eccentrica
+        concentric: 'rgba(0, 255, 0, 0.7)',     // Verde per concentrica
+        takeoff: 'rgba(255, 0, 0, 0.7)'        // Rosso per decollo
+      };
+      
+      // Linea inizio contatto / inizio eccentrica
+      if (phaseTimes.contactStart !== null) {
+        const x = padding + ((phaseTimes.contactStart - minT) / deltaT) * chartWidth;
+        ctx.strokeStyle = markerColors.contact;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(x, padding);
+        ctx.lineTo(x, height - padding);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // Etichetta
+        ctx.fillStyle = markerColors.contact;
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText('Inizio Contatto', x, padding + 2);
+      }
+      
+      // Linea fine eccentrica / inizio concentrica
+      if (phaseTimes.eccentricEnd !== null) {
+        const x = padding + ((phaseTimes.eccentricEnd - minT) / deltaT) * chartWidth;
+        ctx.strokeStyle = markerColors.eccentric;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(x, padding);
+        ctx.lineTo(x, height - padding);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // Etichetta
+        ctx.fillStyle = markerColors.eccentric;
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText('Fine Eccentrica', x, padding + 14);
+      }
+      
+      // Linea decollo / fine concentrica
+      if (phaseTimes.takeoff !== null) {
+        const x = padding + ((phaseTimes.takeoff - minT) / deltaT) * chartWidth;
+        ctx.strokeStyle = markerColors.takeoff;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(x, padding);
+        ctx.lineTo(x, height - padding);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // Etichetta
+        ctx.fillStyle = markerColors.takeoff;
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText('Decollo', x, padding + 26);
+      }
+    }
     
     drawLabels(ctx, {
       width,
@@ -849,6 +1111,9 @@
     const trajectoryFirstY = height - padding - ((firstTrajectoryPoint.y - minY) / deltaY) * chartHeight;
     const velocityFirstY = height - padding - ((firstVelocityPoint.v - minV) / deltaV) * chartHeight;
     const velocityOffset = trajectoryFirstY - velocityFirstY;
+    
+    // Ottieni i tempi delle fasi
+    const phaseTimes = getPhaseTimes(trajectoryData, velocityData);
     
     // Disegna la griglia per la traiettoria (asse Y sinistro)
     drawGrid(ctx, {
@@ -910,6 +1175,25 @@
       ctx.lineTo(width - padding, zeroY);
       ctx.stroke();
       ctx.setLineDash([]);
+    }
+    
+    // Disegna le aree colorate per le fasi (sotto le linee)
+    if (phaseTimes) {
+      // Area fase eccentrica
+      if (phaseTimes.eccentricStart !== null && phaseTimes.eccentricEnd !== null) {
+        const x1 = padding + ((phaseTimes.eccentricStart - minT) / deltaT) * chartWidth;
+        const x2 = padding + ((phaseTimes.eccentricEnd - minT) / deltaT) * chartWidth;
+        ctx.fillStyle = 'rgba(255, 165, 0, 0.15)';
+        ctx.fillRect(x1, padding, x2 - x1, chartHeight);
+      }
+      
+      // Area fase concentrica
+      if (phaseTimes.concentricStart !== null && phaseTimes.concentricEnd !== null) {
+        const x1 = padding + ((phaseTimes.concentricStart - minT) / deltaT) * chartWidth;
+        const x2 = padding + ((phaseTimes.concentricEnd - minT) / deltaT) * chartWidth;
+        ctx.fillStyle = 'rgba(0, 255, 0, 0.15)';
+        ctx.fillRect(x1, padding, x2 - x1, chartHeight);
+      }
     }
     
     // Disegna la traiettoria
@@ -975,6 +1259,76 @@
         ctx.fill();
       }
     });
+    
+    // Disegna le linee di riferimento per le fasi
+    if (phaseTimes) {
+      const markerColors = {
+        contact: 'rgba(255, 255, 0, 0.7)',      // Giallo per contatto
+        eccentric: 'rgba(255, 165, 0, 0.7)',   // Arancione per eccentrica
+        concentric: 'rgba(0, 255, 0, 0.7)',     // Verde per concentrica
+        takeoff: 'rgba(255, 0, 0, 0.7)'        // Rosso per decollo
+      };
+      
+      // Linea inizio contatto / inizio eccentrica
+      if (phaseTimes.contactStart !== null) {
+        const x = padding + ((phaseTimes.contactStart - minT) / deltaT) * chartWidth;
+        ctx.strokeStyle = markerColors.contact;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(x, padding);
+        ctx.lineTo(x, height - padding);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // Etichetta
+        ctx.fillStyle = markerColors.contact;
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText('Inizio Contatto', x, padding + 2);
+      }
+      
+      // Linea fine eccentrica / inizio concentrica
+      if (phaseTimes.eccentricEnd !== null) {
+        const x = padding + ((phaseTimes.eccentricEnd - minT) / deltaT) * chartWidth;
+        ctx.strokeStyle = markerColors.eccentric;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(x, padding);
+        ctx.lineTo(x, height - padding);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // Etichetta
+        ctx.fillStyle = markerColors.eccentric;
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText('Fine Eccentrica', x, padding + 14);
+      }
+      
+      // Linea decollo / fine concentrica
+      if (phaseTimes.takeoff !== null) {
+        const x = padding + ((phaseTimes.takeoff - minT) / deltaT) * chartWidth;
+        ctx.strokeStyle = markerColors.takeoff;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(x, padding);
+        ctx.lineTo(x, height - padding);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // Etichetta
+        ctx.fillStyle = markerColors.takeoff;
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText('Decollo', x, padding + 26);
+      }
+    }
     
     // Etichette degli assi
     ctx.fillStyle = TRAJECTORY_STYLE.label;
