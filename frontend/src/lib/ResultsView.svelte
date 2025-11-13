@@ -16,13 +16,8 @@
   let fullscreenTrajectoryCanvas;
   let fullscreenVelocityCanvas;
   let fullscreenCombinedCanvas;
-  let derivedVelocityData = [];
-  let calculatedAverageForce = 0; // Forza media calcolata dalla velocità
-  let calculatedTakeoffVelocity = 0; // Velocità decollo calcolata dai grafici
-  let calculatedConcentricTime = 0; // Fase concentrica calcolata dalla velocità
-  let calculatedEccentricTime = 0; // Fase eccentrica calcolata dalla velocità
-  let calculatedContactTime = 0; // Tempo di contatto calcolato dalla velocità
-  let calculatedEstimatedPower = 0; // Potenza esplosiva calcolata dalla velocità
+  let derivedVelocityData = []; // Ricevuto dal backend
+  let phaseTimes = null; // Ricevuto dal backend
   
   const GRID_STEPS = 5;
   const TRAJECTORY_STYLE = {
@@ -63,9 +58,24 @@
     window.removeEventListener('keydown', handleKeydown);
   });
 
-  $: derivedVelocityData = computeDerivedVelocity($appState.trajectoryData);
+  // Inizializza i dati dai results quando arrivano
+  $: if (results) {
+    derivedVelocityData = results.velocity || [];
+    phaseTimes = results.phase_times || null;
+    // Aggiorna anche trajectoryData nello store se disponibile
+    if (results.trajectory) {
+      $appState.trajectoryData = results.trajectory;
+    }
+  }
   
-  // Funzione per calcolare la forza media dalla velocità
+  // Tutte le funzioni di calcolo sono state spostate nel backend
+  
+  // Funzione helper per ottenere i tempi delle fasi (ora usa i dati dal backend)
+  function getPhaseTimes() {
+    return phaseTimes;
+  }
+  
+  // Funzione per calcolare la forza media dalla velocità (RIMOSSA - ora calcolata nel backend)
   function calculateAverageForceFromVelocity(velocityData, trajectoryData, bodyMassKg = 70.0) {
     if (!velocityData || velocityData.length < 2 || bodyMassKg <= 0) {
       return 0;
@@ -518,138 +528,9 @@
     return maxPower;
   }
   
-  // Funzione helper per ottenere i tempi delle fasi
-  function getPhaseTimes(trajectoryData, velocityData) {
-    if (!trajectoryData || trajectoryData.length < 2 || !velocityData || velocityData.length < 2) {
-      return null;
-    }
-    
-    let baselineHeight = trajectoryData[0]?.y || 0;
-    let contactStartTime = null;
-    let eccentricStartTime = null;
-    let eccentricEndTime = null;
-    let concentricStartTime = null;
-    let concentricEndTime = null;
-    let takeoffTime = null;
-    
-    // Trova inizio contatto / inizio fase eccentrica
-    for (let i = 0; i < velocityData.length; i++) {
-      if (velocityData[i].v < 0 && contactStartTime === null) {
-        const heightAtTime = trajectoryData.find(t => Math.abs(t.t - velocityData[i].t) < 0.01);
-        if (heightAtTime && heightAtTime.y < baselineHeight) {
-          contactStartTime = velocityData[i].t;
-          eccentricStartTime = velocityData[i].t;
-          break;
-        } else if (heightAtTime === undefined) {
-          contactStartTime = velocityData[i].t;
-          eccentricStartTime = velocityData[i].t;
-          break;
-        }
-      }
-    }
-    
-    // Trova fine fase eccentrica (minimo velocità)
-    let minVelocity = Infinity;
-    let minVelocityIndex = -1;
-    for (let i = 0; i < velocityData.length; i++) {
-      if (velocityData[i].v < minVelocity) {
-        minVelocity = velocityData[i].v;
-        minVelocityIndex = i;
-      }
-    }
-    if (minVelocityIndex >= 0) {
-      eccentricEndTime = velocityData[minVelocityIndex].t;
-      concentricStartTime = velocityData[minVelocityIndex].t;
-    }
-    
-    // Trova fine fase concentrica / decollo
-    let minHeight = Infinity;
-    let minHeightIndex = -1;
-    for (let i = 0; i < trajectoryData.length; i++) {
-      if (trajectoryData[i].y < minHeight) {
-        minHeight = trajectoryData[i].y;
-        minHeightIndex = i;
-      }
-    }
-    
-    if (minHeightIndex >= 0) {
-      for (let i = minHeightIndex + 1; i < trajectoryData.length; i++) {
-        if (trajectoryData[i].y >= baselineHeight) {
-          const velocityAtTime = velocityData.find(v => Math.abs(v.t - trajectoryData[i].t) < 0.01);
-          if (velocityAtTime && velocityAtTime.v > 0) {
-            takeoffTime = trajectoryData[i].t;
-            concentricEndTime = trajectoryData[i].t;
-            break;
-          }
-        }
-      }
-    }
-    
-    return {
-      contactStart: contactStartTime,
-      contactEnd: takeoffTime,
-      eccentricStart: eccentricStartTime,
-      eccentricEnd: eccentricEndTime,
-      concentricStart: concentricStartTime,
-      concentricEnd: concentricEndTime,
-      takeoff: takeoffTime
-    };
-  }
+  // La funzione getPhaseTimes() è stata rimossa - ora usa phaseTimes dal backend
   
-  // Calcola la velocità di decollo quando i dati cambiano
-  $: if (derivedVelocityData.length > 0 && $appState.trajectoryData.length > 0) {
-    calculatedTakeoffVelocity = calculateTakeoffVelocity(
-      $appState.trajectoryData,
-      derivedVelocityData
-    );
-  }
-  
-  // Calcola la fase concentrica quando i dati cambiano
-  $: if (derivedVelocityData.length > 0 && $appState.trajectoryData.length > 0 && results) {
-    const bodyMass = results.body_mass_kg || 70.0;
-    calculatedConcentricTime = calculateConcentricTime(
-      $appState.trajectoryData,
-      derivedVelocityData,
-      bodyMass
-    );
-  }
-  
-  // Calcola la fase eccentrica quando i dati cambiano
-  $: if (derivedVelocityData.length > 0 && $appState.trajectoryData.length > 0) {
-    calculatedEccentricTime = calculateEccentricTime(
-      $appState.trajectoryData,
-      derivedVelocityData
-    );
-  }
-  
-  // Calcola il tempo di contatto quando i dati cambiano
-  $: if (derivedVelocityData.length > 0 && $appState.trajectoryData.length > 0) {
-    calculatedContactTime = calculateContactTime(
-      $appState.trajectoryData,
-      derivedVelocityData
-    );
-  }
-  
-  // Calcola la forza media quando i dati cambiano
-  $: if (derivedVelocityData.length > 0 && $appState.trajectoryData.length > 0 && results) {
-    // Ottieni la massa del giocatore (assumendo che sia disponibile nei results o usa default)
-    const bodyMass = results.body_mass_kg || 70.0;
-    calculatedAverageForce = calculateAverageForceFromVelocity(
-      derivedVelocityData, 
-      $appState.trajectoryData,
-      bodyMass
-    );
-  }
-  
-  // Calcola la potenza esplosiva quando i dati cambiano
-  $: if (derivedVelocityData.length > 0 && $appState.trajectoryData.length > 0 && results) {
-    const bodyMass = results.body_mass_kg || 70.0;
-    calculatedEstimatedPower = calculateEstimatedPower(
-      derivedVelocityData,
-      $appState.trajectoryData,
-      bodyMass
-    );
-  }
+  // Tutti i calcoli sono ora fatti nel backend e arrivano tramite results
   
   $: if (trajectoryCanvas) {
     if ($appState.trajectoryData.length > 0) {
@@ -749,8 +630,8 @@
     const deltaT = maxT === minT ? 1 : (maxT - minT);
     const deltaY = maxY === minY ? 1 : (maxY - minY);
     
-    // Ottieni i tempi delle fasi
-    const phaseTimes = getPhaseTimes(data, derivedVelocityData);
+    // Usa i tempi delle fasi dal backend
+    const currentPhaseTimes = phaseTimes;
     
     drawGrid(ctx, {
       padding,
@@ -781,17 +662,17 @@
     // Disegna le aree colorate per le fasi (sotto la linea)
     if (phaseTimes) {
       // Area fase eccentrica
-      if (phaseTimes.eccentricStart !== null && phaseTimes.eccentricEnd !== null) {
-        const x1 = padding + ((phaseTimes.eccentricStart - minT) / deltaT) * chartWidth;
-        const x2 = padding + ((phaseTimes.eccentricEnd - minT) / deltaT) * chartWidth;
+      if (currentPhaseTimes.eccentricStart !== null && currentPhaseTimes.eccentricEnd !== null) {
+        const x1 = padding + ((currentPhaseTimes.eccentricStart - minT) / deltaT) * chartWidth;
+        const x2 = padding + ((currentPhaseTimes.eccentricEnd - minT) / deltaT) * chartWidth;
         ctx.fillStyle = 'rgba(255, 165, 0, 0.15)';
         ctx.fillRect(x1, padding, x2 - x1, chartHeight);
       }
       
       // Area fase concentrica
-      if (phaseTimes.concentricStart !== null && phaseTimes.concentricEnd !== null) {
-        const x1 = padding + ((phaseTimes.concentricStart - minT) / deltaT) * chartWidth;
-        const x2 = padding + ((phaseTimes.concentricEnd - minT) / deltaT) * chartWidth;
+      if (currentPhaseTimes.concentricStart !== null && currentPhaseTimes.concentricEnd !== null) {
+        const x1 = padding + ((currentPhaseTimes.concentricStart - minT) / deltaT) * chartWidth;
+        const x2 = padding + ((currentPhaseTimes.concentricEnd - minT) / deltaT) * chartWidth;
         ctx.fillStyle = 'rgba(0, 255, 0, 0.15)';
         ctx.fillRect(x1, padding, x2 - x1, chartHeight);
       }
@@ -835,7 +716,7 @@
     });
     
     // Disegna le linee di riferimento per le fasi
-    if (phaseTimes) {
+    if (currentPhaseTimes) {
       const markerColors = {
         contact: 'rgba(255, 255, 0, 0.7)',      // Giallo per contatto
         eccentric: 'rgba(255, 165, 0, 0.7)',   // Arancione per eccentrica
@@ -844,8 +725,8 @@
       };
       
       // Linea inizio contatto / inizio eccentrica
-      if (phaseTimes.contactStart !== null) {
-        const x = padding + ((phaseTimes.contactStart - minT) / deltaT) * chartWidth;
+      if (currentPhaseTimes.contactStart !== null) {
+        const x = padding + ((currentPhaseTimes.contactStart - minT) / deltaT) * chartWidth;
         ctx.strokeStyle = markerColors.contact;
         ctx.lineWidth = 2;
         ctx.setLineDash([4, 4]);
@@ -864,8 +745,8 @@
       }
       
       // Linea fine eccentrica / inizio concentrica
-      if (phaseTimes.eccentricEnd !== null) {
-        const x = padding + ((phaseTimes.eccentricEnd - minT) / deltaT) * chartWidth;
+      if (currentPhaseTimes.eccentricEnd !== null) {
+        const x = padding + ((currentPhaseTimes.eccentricEnd - minT) / deltaT) * chartWidth;
         ctx.strokeStyle = markerColors.eccentric;
         ctx.lineWidth = 2;
         ctx.setLineDash([4, 4]);
@@ -884,8 +765,8 @@
       }
       
       // Linea decollo / fine concentrica
-      if (phaseTimes.takeoff !== null) {
-        const x = padding + ((phaseTimes.takeoff - minT) / deltaT) * chartWidth;
+      if (currentPhaseTimes.takeoff !== null) {
+        const x = padding + ((currentPhaseTimes.takeoff - minT) / deltaT) * chartWidth;
         ctx.strokeStyle = markerColors.takeoff;
         ctx.lineWidth = 2;
         ctx.setLineDash([4, 4]);
@@ -941,8 +822,8 @@
     const deltaT = maxT === minT ? 1 : (maxT - minT);
     const deltaV = maxV === minV ? (Math.abs(maxV) || 1) : (maxV - minV);
     
-    // Ottieni i tempi delle fasi
-    const phaseTimes = getPhaseTimes($appState.trajectoryData, data);
+    // Usa i tempi delle fasi dal backend
+    const currentPhaseTimes = phaseTimes;
     
     drawGrid(ctx, {
       padding,
@@ -975,17 +856,17 @@
     // Disegna le aree colorate per le fasi (sotto la linea)
     if (phaseTimes) {
       // Area fase eccentrica
-      if (phaseTimes.eccentricStart !== null && phaseTimes.eccentricEnd !== null) {
-        const x1 = padding + ((phaseTimes.eccentricStart - minT) / deltaT) * chartWidth;
-        const x2 = padding + ((phaseTimes.eccentricEnd - minT) / deltaT) * chartWidth;
+      if (currentPhaseTimes.eccentricStart !== null && currentPhaseTimes.eccentricEnd !== null) {
+        const x1 = padding + ((currentPhaseTimes.eccentricStart - minT) / deltaT) * chartWidth;
+        const x2 = padding + ((currentPhaseTimes.eccentricEnd - minT) / deltaT) * chartWidth;
         ctx.fillStyle = 'rgba(255, 165, 0, 0.15)';
         ctx.fillRect(x1, padding, x2 - x1, chartHeight);
       }
       
       // Area fase concentrica
-      if (phaseTimes.concentricStart !== null && phaseTimes.concentricEnd !== null) {
-        const x1 = padding + ((phaseTimes.concentricStart - minT) / deltaT) * chartWidth;
-        const x2 = padding + ((phaseTimes.concentricEnd - minT) / deltaT) * chartWidth;
+      if (currentPhaseTimes.concentricStart !== null && currentPhaseTimes.concentricEnd !== null) {
+        const x1 = padding + ((currentPhaseTimes.concentricStart - minT) / deltaT) * chartWidth;
+        const x2 = padding + ((currentPhaseTimes.concentricEnd - minT) / deltaT) * chartWidth;
         ctx.fillStyle = 'rgba(0, 255, 0, 0.15)';
         ctx.fillRect(x1, padding, x2 - x1, chartHeight);
       }
@@ -1032,7 +913,7 @@
     });
     
     // Disegna le linee di riferimento per le fasi
-    if (phaseTimes) {
+    if (currentPhaseTimes) {
       const markerColors = {
         contact: 'rgba(255, 255, 0, 0.7)',      // Giallo per contatto
         eccentric: 'rgba(255, 165, 0, 0.7)',   // Arancione per eccentrica
@@ -1041,8 +922,8 @@
       };
       
       // Linea inizio contatto / inizio eccentrica
-      if (phaseTimes.contactStart !== null) {
-        const x = padding + ((phaseTimes.contactStart - minT) / deltaT) * chartWidth;
+      if (currentPhaseTimes.contactStart !== null) {
+        const x = padding + ((currentPhaseTimes.contactStart - minT) / deltaT) * chartWidth;
         ctx.strokeStyle = markerColors.contact;
         ctx.lineWidth = 2;
         ctx.setLineDash([4, 4]);
@@ -1061,8 +942,8 @@
       }
       
       // Linea fine eccentrica / inizio concentrica
-      if (phaseTimes.eccentricEnd !== null) {
-        const x = padding + ((phaseTimes.eccentricEnd - minT) / deltaT) * chartWidth;
+      if (currentPhaseTimes.eccentricEnd !== null) {
+        const x = padding + ((currentPhaseTimes.eccentricEnd - minT) / deltaT) * chartWidth;
         ctx.strokeStyle = markerColors.eccentric;
         ctx.lineWidth = 2;
         ctx.setLineDash([4, 4]);
@@ -1081,8 +962,8 @@
       }
       
       // Linea decollo / fine concentrica
-      if (phaseTimes.takeoff !== null) {
-        const x = padding + ((phaseTimes.takeoff - minT) / deltaT) * chartWidth;
+      if (currentPhaseTimes.takeoff !== null) {
+        const x = padding + ((currentPhaseTimes.takeoff - minT) / deltaT) * chartWidth;
         ctx.strokeStyle = markerColors.takeoff;
         ctx.lineWidth = 2;
         ctx.setLineDash([4, 4]);
@@ -1161,10 +1042,28 @@
     // Calcola l'offset per allineare i primi punti
     const trajectoryFirstY = height - padding - ((firstTrajectoryPoint.y - minY) / deltaY) * chartHeight;
     const velocityFirstY = height - padding - ((firstVelocityPoint.v - minV) / deltaV) * chartHeight;
-    const velocityOffset = trajectoryFirstY - velocityFirstY;
+    let velocityOffset = trajectoryFirstY - velocityFirstY;
     
-    // Ottieni i tempi delle fasi
-    const phaseTimes = getPhaseTimes(trajectoryData, velocityData);
+    // Calcola il range effettivo della velocità dopo l'applicazione dell'offset
+    // per assicurarsi che tutti i punti rimangano visibili
+    const velocityYPositions = velocityData.map(point => {
+      const baseY = height - padding - ((point.v - minV) / deltaV) * chartHeight;
+      return baseY + velocityOffset;
+    });
+    
+    const minVelocityY = Math.min(...velocityYPositions);
+    const maxVelocityY = Math.max(...velocityYPositions);
+    
+    // Se alcuni punti escono dal canvas, aggiusta l'offset
+    if (minVelocityY < padding) {
+      velocityOffset += (padding - minVelocityY);
+    }
+    if (maxVelocityY > height - padding) {
+      velocityOffset -= (maxVelocityY - (height - padding));
+    }
+    
+    // Usa i tempi delle fasi dal backend
+    const currentPhaseTimes = phaseTimes;
     
     // Disegna la griglia per la traiettoria (asse Y sinistro)
     drawGrid(ctx, {
@@ -1231,17 +1130,17 @@
     // Disegna le aree colorate per le fasi (sotto le linee)
     if (phaseTimes) {
       // Area fase eccentrica
-      if (phaseTimes.eccentricStart !== null && phaseTimes.eccentricEnd !== null) {
-        const x1 = padding + ((phaseTimes.eccentricStart - minT) / deltaT) * chartWidth;
-        const x2 = padding + ((phaseTimes.eccentricEnd - minT) / deltaT) * chartWidth;
+      if (currentPhaseTimes.eccentricStart !== null && currentPhaseTimes.eccentricEnd !== null) {
+        const x1 = padding + ((currentPhaseTimes.eccentricStart - minT) / deltaT) * chartWidth;
+        const x2 = padding + ((currentPhaseTimes.eccentricEnd - minT) / deltaT) * chartWidth;
         ctx.fillStyle = 'rgba(255, 165, 0, 0.15)';
         ctx.fillRect(x1, padding, x2 - x1, chartHeight);
       }
       
       // Area fase concentrica
-      if (phaseTimes.concentricStart !== null && phaseTimes.concentricEnd !== null) {
-        const x1 = padding + ((phaseTimes.concentricStart - minT) / deltaT) * chartWidth;
-        const x2 = padding + ((phaseTimes.concentricEnd - minT) / deltaT) * chartWidth;
+      if (currentPhaseTimes.concentricStart !== null && currentPhaseTimes.concentricEnd !== null) {
+        const x1 = padding + ((currentPhaseTimes.concentricStart - minT) / deltaT) * chartWidth;
+        const x2 = padding + ((currentPhaseTimes.concentricEnd - minT) / deltaT) * chartWidth;
         ctx.fillStyle = 'rgba(0, 255, 0, 0.15)';
         ctx.fillRect(x1, padding, x2 - x1, chartHeight);
       }
@@ -1312,7 +1211,7 @@
     });
     
     // Disegna le linee di riferimento per le fasi
-    if (phaseTimes) {
+    if (currentPhaseTimes) {
       const markerColors = {
         contact: 'rgba(255, 255, 0, 0.7)',      // Giallo per contatto
         eccentric: 'rgba(255, 165, 0, 0.7)',   // Arancione per eccentrica
@@ -1321,8 +1220,8 @@
       };
       
       // Linea inizio contatto / inizio eccentrica
-      if (phaseTimes.contactStart !== null) {
-        const x = padding + ((phaseTimes.contactStart - minT) / deltaT) * chartWidth;
+      if (currentPhaseTimes.contactStart !== null) {
+        const x = padding + ((currentPhaseTimes.contactStart - minT) / deltaT) * chartWidth;
         ctx.strokeStyle = markerColors.contact;
         ctx.lineWidth = 2;
         ctx.setLineDash([4, 4]);
@@ -1341,8 +1240,8 @@
       }
       
       // Linea fine eccentrica / inizio concentrica
-      if (phaseTimes.eccentricEnd !== null) {
-        const x = padding + ((phaseTimes.eccentricEnd - minT) / deltaT) * chartWidth;
+      if (currentPhaseTimes.eccentricEnd !== null) {
+        const x = padding + ((currentPhaseTimes.eccentricEnd - minT) / deltaT) * chartWidth;
         ctx.strokeStyle = markerColors.eccentric;
         ctx.lineWidth = 2;
         ctx.setLineDash([4, 4]);
@@ -1361,8 +1260,8 @@
       }
       
       // Linea decollo / fine concentrica
-      if (phaseTimes.takeoff !== null) {
-        const x = padding + ((phaseTimes.takeoff - minT) / deltaT) * chartWidth;
+      if (currentPhaseTimes.takeoff !== null) {
+        const x = padding + ((currentPhaseTimes.takeoff - minT) / deltaT) * chartWidth;
         ctx.strokeStyle = markerColors.takeoff;
         ctx.lineWidth = 2;
         ctx.setLineDash([4, 4]);
@@ -1606,13 +1505,13 @@
         <div>
           <p class="text-xs text-slate-400 mb-1">Velocità Decollo</p>
           <p class="text-2xl font-bold text-purple-400">
-            {calculatedTakeoffVelocity > 0 ? Math.round(calculatedTakeoffVelocity * 10) / 10 : (results.takeoff_velocity || 0)} cm/s
+            {(results.calculated_takeoff_velocity || results.takeoff_velocity || 0)} cm/s
           </p>
         </div>
         <div>
           <p class="text-xs text-slate-400 mb-1">Potenza Est.</p>
           <p class="text-2xl font-bold text-yellow-400">
-            {calculatedEstimatedPower > 0 ? Math.round(calculatedEstimatedPower * 10) / 10 : (results.estimated_power || 0)} W
+            {(results.calculated_estimated_power || results.estimated_power || 0)} W
           </p>
         </div>
       </div>
@@ -1625,19 +1524,19 @@
         <div class="flex justify-between items-center">
           <span class="text-sm text-slate-400">Tempo Contatto</span>
           <span class="text-lg font-semibold text-white">
-            {calculatedContactTime > 0 ? Math.round(calculatedContactTime * 1000) / 1000 : (results.contact_time || 0)} s
+            {(results.calculated_contact_time || results.contact_time || 0)} s
           </span>
         </div>
         <div class="flex justify-between items-center">
           <span class="text-sm text-slate-400">Fase Eccentrica</span>
           <span class="text-lg font-semibold text-white">
-            {calculatedEccentricTime > 0 ? Math.round(calculatedEccentricTime * 1000) / 1000 : (results.eccentric_time || 0)} s
+            {(results.calculated_eccentric_time || results.eccentric_time || 0)} s
           </span>
         </div>
         <div class="flex justify-between items-center">
           <span class="text-sm text-slate-400">Fase Concentrica</span>
           <span class="text-lg font-semibold text-white">
-            {calculatedConcentricTime > 0 ? Math.round(calculatedConcentricTime * 1000) / 1000 : (results.concentric_time || 0)} s
+            {(results.calculated_concentric_time || results.concentric_time || 0)} s
           </span>
         </div>
         <div class="flex justify-between items-center">
@@ -1654,7 +1553,7 @@
         <div class="flex justify-between items-center">
           <span class="text-sm text-slate-400">Forza Media</span>
           <span class="text-lg font-semibold text-white">
-            {calculatedAverageForce > 0 ? Math.round(calculatedAverageForce * 10) / 10 : (results.average_force || 0)} N
+            {(results.calculated_average_force || results.average_force || 0)} N
           </span>
         </div>
         <div class="flex justify-between items-center">

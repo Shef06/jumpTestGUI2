@@ -655,18 +655,456 @@ def analysis_data():
     })
 
 
+# Funzioni di calcolo per i risultati
+G = 9.81  # Accelerazione di gravità in m/s²
+
+def compute_derived_velocity(trajectory_data):
+    """Calcola la velocità derivata dalla traiettoria"""
+    if not trajectory_data or len(trajectory_data) < 2:
+        return []
+    
+    velocities = []
+    for i in range(1, len(trajectory_data)):
+        prev = trajectory_data[i - 1]
+        curr = trajectory_data[i]
+        delta_t = curr['t'] - prev['t']
+        
+        if delta_t <= 0 or not np.isfinite(delta_t):
+            continue
+        
+        delta_y = curr['y'] - prev['y']
+        velocities.append({
+            't': curr['t'],
+            'v': delta_y / delta_t
+        })
+    
+    if len(velocities) == 0:
+        return []
+    
+    # Aggiungi un punto iniziale a t=0 (primo tempo disponibile) con v=0
+    return [{'t': trajectory_data[0]['t'], 'v': 0}] + velocities
+
+
+def get_phase_times(trajectory_data, velocity_data):
+    """Calcola i tempi delle fasi del salto"""
+    if not trajectory_data or len(trajectory_data) < 2 or not velocity_data or len(velocity_data) < 2:
+        return None
+    
+    baseline_height = trajectory_data[0].get('y', 0) if trajectory_data else 0
+    contact_start_time = None
+    eccentric_start_time = None
+    eccentric_end_time = None
+    concentric_start_time = None
+    concentric_end_time = None
+    takeoff_time = None
+    
+    # Trova inizio contatto / inizio fase eccentrica
+    for i, vel_point in enumerate(velocity_data):
+        if vel_point['v'] < 0 and contact_start_time is None:
+            # Trova l'altezza corrispondente
+            height_at_time = next((t for t in trajectory_data if abs(t['t'] - vel_point['t']) < 0.01), None)
+            if height_at_time and height_at_time['y'] < baseline_height:
+                contact_start_time = vel_point['t']
+                eccentric_start_time = vel_point['t']
+                break
+            elif height_at_time is None:
+                contact_start_time = vel_point['t']
+                eccentric_start_time = vel_point['t']
+                break
+    
+    # Trova fine fase eccentrica (minimo velocità)
+    min_velocity = float('inf')
+    min_velocity_index = -1
+    for i, vel_point in enumerate(velocity_data):
+        if vel_point['v'] < min_velocity:
+            min_velocity = vel_point['v']
+            min_velocity_index = i
+    
+    if min_velocity_index >= 0:
+        eccentric_end_time = velocity_data[min_velocity_index]['t']
+        concentric_start_time = velocity_data[min_velocity_index]['t']
+    
+    # Trova fine fase concentrica / decollo
+    min_height = float('inf')
+    min_height_index = -1
+    for i, traj_point in enumerate(trajectory_data):
+        if traj_point['y'] < min_height:
+            min_height = traj_point['y']
+            min_height_index = i
+    
+    if min_height_index >= 0:
+        for i in range(min_height_index + 1, len(trajectory_data)):
+            if trajectory_data[i]['y'] >= baseline_height:
+                # Trova la velocità corrispondente
+                velocity_at_time = next((v for v in velocity_data if abs(v['t'] - trajectory_data[i]['t']) < 0.01), None)
+                if velocity_at_time and velocity_at_time['v'] > 0:
+                    takeoff_time = trajectory_data[i]['t']
+                    concentric_end_time = trajectory_data[i]['t']
+                    break
+    
+    return {
+        'contactStart': contact_start_time,
+        'contactEnd': takeoff_time,
+        'eccentricStart': eccentric_start_time,
+        'eccentricEnd': eccentric_end_time,
+        'concentricStart': concentric_start_time,
+        'concentricEnd': concentric_end_time,
+        'takeoff': takeoff_time
+    }
+
+
+def calculate_average_force_from_velocity(velocity_data, trajectory_data, body_mass_kg=70.0):
+    """Calcola la forza media dalla velocità"""
+    if not velocity_data or len(velocity_data) < 2 or body_mass_kg <= 0:
+        return 0
+    
+    CONTACT_THRESHOLD = 5.0  # cm
+    
+    # Crea una mappa per l'altezza
+    height_map = {point['t']: point['y'] for point in trajectory_data} if trajectory_data else {}
+    
+    # Calcola l'accelerazione dalla velocità
+    accelerations = []
+    for i in range(1, len(velocity_data)):
+        prev = velocity_data[i - 1]
+        curr = velocity_data[i]
+        delta_t = curr['t'] - prev['t']
+        
+        if delta_t > 0 and np.isfinite(delta_t):
+            v1_ms = prev['v'] / 100  # cm/s -> m/s
+            v2_ms = curr['v'] / 100
+            a_ms2 = (v2_ms - v1_ms) / delta_t
+            
+            accelerations.append({
+                'time': curr['t'],
+                'a_ms2': a_ms2,
+                'velocity': curr['v']
+            })
+    
+    if len(accelerations) == 0:
+        return 0
+    
+    # Calcola la forza istantanea solo durante la fase di contatto
+    forces = []
+    for acc in accelerations:
+        height = height_map.get(acc['time'])
+        is_in_contact = height is not None and abs(height) <= CONTACT_THRESHOLD
+        
+        if is_in_contact and abs(acc['a_ms2']) > 0.05:
+            force = body_mass_kg * (acc['a_ms2'] + G)
+            if force > body_mass_kg * G * 0.3 and acc['velocity'] >= 0:
+                forces.append(force)
+    
+    if len(forces) == 0:
+        return 0
+    
+    return sum(forces) / len(forces)
+
+
+def calculate_takeoff_velocity(trajectory_data, velocity_data):
+    """Calcola la velocità di decollo"""
+    if not trajectory_data or len(trajectory_data) < 2 or not velocity_data or len(velocity_data) < 2:
+        return 0
+    
+    baseline_height = trajectory_data[0].get('y', 0) if trajectory_data else 0
+    takeoff_time = None
+    min_height = float('inf')
+    min_height_index = -1
+    
+    # Trova il minimo dell'altezza
+    for i, point in enumerate(trajectory_data):
+        if point['y'] < min_height:
+            min_height = point['y']
+            min_height_index = i
+    
+    # Dopo il fondo piegamento, trova quando l'altezza torna al baseline
+    if min_height_index >= 0:
+        for i in range(min_height_index + 1, len(trajectory_data)):
+            if trajectory_data[i]['y'] >= baseline_height:
+                velocity_at_time = next((v for v in velocity_data if abs(v['t'] - trajectory_data[i]['t']) < 0.01), None)
+                if velocity_at_time and velocity_at_time['v'] > 0:
+                    takeoff_time = trajectory_data[i]['t']
+                    break
+    
+    # Trova l'altezza massima nella fase di volo
+    h_max_volo = 0
+    if takeoff_time is not None:
+        for point in trajectory_data:
+            if point['t'] > takeoff_time and point['y'] > h_max_volo:
+                h_max_volo = point['y']
+    else:
+        if min_height_index >= 0:
+            for i in range(min_height_index + 1, len(trajectory_data)):
+                if trajectory_data[i]['y'] > h_max_volo:
+                    h_max_volo = trajectory_data[i]['y']
+    
+    # Calcola la velocità di decollo usando v = sqrt(2 * g * h)
+    if h_max_volo > 0:
+        h_max_m = h_max_volo / 100  # cm -> m
+        v_decollo_ms = np.sqrt(2 * G * h_max_m)
+        return v_decollo_ms * 100  # m/s -> cm/s
+    
+    # Fallback: usa il valore diretto della velocità al momento del decollo
+    if takeoff_time is not None:
+        velocity_at_takeoff = next((v for v in velocity_data if abs(v['t'] - takeoff_time) < 0.01), None)
+        if velocity_at_takeoff and velocity_at_takeoff['v'] > 0:
+            return velocity_at_takeoff['v']
+    
+    # Ultimo fallback: trova la velocità massima positiva
+    max_velocity = 0
+    for vel_point in velocity_data:
+        if vel_point['v'] > max_velocity:
+            max_velocity = vel_point['v']
+    
+    return max_velocity
+
+
+def calculate_concentric_time(trajectory_data, velocity_data, body_mass_kg=70.0):
+    """Calcola la fase concentrica"""
+    if not trajectory_data or len(trajectory_data) < 2 or not velocity_data or len(velocity_data) < 2:
+        return 0
+    
+    baseline_height = trajectory_data[0].get('y', 0) if trajectory_data else 0
+    concentric_start_time = None
+    concentric_end_time = None
+    
+    # Trova il minimo della velocità
+    min_velocity = float('inf')
+    min_velocity_index = -1
+    for i, vel_point in enumerate(velocity_data):
+        if vel_point['v'] < min_velocity:
+            min_velocity = vel_point['v']
+            min_velocity_index = i
+    
+    # Inizio fase concentrica: quando la velocità diventa positiva dopo il minimo
+    if min_velocity_index >= 0:
+        for i in range(min_velocity_index, len(velocity_data)):
+            if velocity_data[i]['v'] > 0 or (i > min_velocity_index and velocity_data[i]['v'] > velocity_data[i - 1]['v'] + 5):
+                concentric_start_time = velocity_data[i]['t']
+                break
+    
+    # Fine fase concentrica: quando avviene il decollo
+    min_height = float('inf')
+    min_height_index = -1
+    for i, point in enumerate(trajectory_data):
+        if point['y'] < min_height:
+            min_height = point['y']
+            min_height_index = i
+    
+    if min_height_index >= 0 and concentric_start_time is not None:
+        for i in range(min_height_index + 1, len(trajectory_data)):
+            if trajectory_data[i]['y'] >= baseline_height and trajectory_data[i]['t'] >= concentric_start_time:
+                velocity_at_time = next((v for v in velocity_data if abs(v['t'] - trajectory_data[i]['t']) < 0.01), None)
+                if velocity_at_time and velocity_at_time['v'] > 0:
+                    concentric_end_time = trajectory_data[i]['t']
+                    break
+    
+    # Se non abbiamo trovato la fine, usa il momento della velocità massima
+    if concentric_start_time is not None and concentric_end_time is None:
+        max_velocity = 0
+        max_velocity_time = None
+        for vel_point in velocity_data:
+            if vel_point['t'] >= concentric_start_time and vel_point['v'] > max_velocity:
+                max_velocity = vel_point['v']
+                max_velocity_time = vel_point['t']
+        if max_velocity_time is not None:
+            concentric_end_time = max_velocity_time
+    
+    if concentric_start_time is not None and concentric_end_time is not None and concentric_end_time > concentric_start_time:
+        return concentric_end_time - concentric_start_time
+    
+    return 0
+
+
+def calculate_eccentric_time(trajectory_data, velocity_data):
+    """Calcola la fase eccentrica"""
+    if not trajectory_data or len(trajectory_data) < 2 or not velocity_data or len(velocity_data) < 2:
+        return 0
+    
+    baseline_height = trajectory_data[0].get('y', 0) if trajectory_data else 0
+    eccentric_start_time = None
+    eccentric_end_time = None
+    
+    # Trova il minimo della velocità
+    min_velocity = float('inf')
+    min_velocity_index = -1
+    for i, vel_point in enumerate(velocity_data):
+        if vel_point['v'] < min_velocity:
+            min_velocity = vel_point['v']
+            min_velocity_index = i
+    
+    # Inizio fase eccentrica: quando la velocità diventa negativa per la prima volta
+    for vel_point in velocity_data:
+        if vel_point['v'] < 0 and eccentric_start_time is None:
+            height_at_time = next((t for t in trajectory_data if abs(t['t'] - vel_point['t']) < 0.01), None)
+            if height_at_time and height_at_time['y'] < baseline_height:
+                eccentric_start_time = vel_point['t']
+                break
+            elif height_at_time is None:
+                eccentric_start_time = vel_point['t']
+                break
+    
+    # Fine fase eccentrica: quando la velocità raggiunge il minimo
+    if min_velocity_index >= 0:
+        eccentric_end_time = velocity_data[min_velocity_index]['t']
+    
+    if eccentric_start_time is not None and eccentric_end_time is not None and eccentric_end_time > eccentric_start_time:
+        return eccentric_end_time - eccentric_start_time
+    
+    return 0
+
+
+def calculate_contact_time(trajectory_data, velocity_data):
+    """Calcola il tempo di contatto"""
+    if not trajectory_data or len(trajectory_data) < 2 or not velocity_data or len(velocity_data) < 2:
+        return 0
+    
+    baseline_height = trajectory_data[0].get('y', 0) if trajectory_data else 0
+    contact_start_time = None
+    contact_end_time = None
+    
+    # Inizio contatto: quando la velocità diventa negativa per la prima volta
+    for vel_point in velocity_data:
+        if vel_point['v'] < 0 and contact_start_time is None:
+            height_at_time = next((t for t in trajectory_data if abs(t['t'] - vel_point['t']) < 0.01), None)
+            if height_at_time and height_at_time['y'] < baseline_height:
+                contact_start_time = vel_point['t']
+                break
+            elif height_at_time is None:
+                contact_start_time = vel_point['t']
+                break
+    
+    # Fine contatto: quando avviene il decollo
+    min_height = float('inf')
+    min_height_index = -1
+    for i, point in enumerate(trajectory_data):
+        if point['y'] < min_height:
+            min_height = point['y']
+            min_height_index = i
+    
+    if min_height_index >= 0:
+        for i in range(min_height_index + 1, len(trajectory_data)):
+            if trajectory_data[i]['y'] >= baseline_height:
+                velocity_at_time = next((v for v in velocity_data if abs(v['t'] - trajectory_data[i]['t']) < 0.01), None)
+                if velocity_at_time and velocity_at_time['v'] > 0:
+                    contact_end_time = trajectory_data[i]['t']
+                    break
+    
+    # Se non abbiamo trovato il decollo, usa il momento della velocità massima
+    if contact_start_time is not None and contact_end_time is None:
+        max_velocity = 0
+        max_velocity_time = None
+        for vel_point in velocity_data:
+            if vel_point['t'] >= contact_start_time and vel_point['v'] > max_velocity:
+                max_velocity = vel_point['v']
+                max_velocity_time = vel_point['t']
+        if max_velocity_time is not None:
+            contact_end_time = max_velocity_time
+    
+    if contact_start_time is not None and contact_end_time is not None and contact_end_time > contact_start_time:
+        return contact_end_time - contact_start_time
+    
+    # Fallback: usa la somma di fase eccentrica + fase concentrica
+    eccentric_time = calculate_eccentric_time(trajectory_data, velocity_data)
+    concentric_time = calculate_concentric_time(trajectory_data, velocity_data, 70.0)
+    if eccentric_time > 0 and concentric_time > 0:
+        return eccentric_time + concentric_time
+    
+    return 0
+
+
+def calculate_estimated_power(velocity_data, trajectory_data, body_mass_kg=70.0):
+    """Calcola la potenza esplosiva"""
+    if not velocity_data or len(velocity_data) < 2 or body_mass_kg <= 0:
+        return 0
+    
+    CONTACT_THRESHOLD = 5.0  # cm
+    
+    # Crea una mappa per l'altezza
+    height_map = {point['t']: point['y'] for point in trajectory_data} if trajectory_data else {}
+    
+    # Calcola l'accelerazione dalla velocità
+    accelerations = []
+    for i in range(1, len(velocity_data)):
+        prev = velocity_data[i - 1]
+        curr = velocity_data[i]
+        delta_t = curr['t'] - prev['t']
+        
+        if delta_t > 0 and np.isfinite(delta_t):
+            v1_ms = prev['v'] / 100  # cm/s -> m/s
+            v2_ms = curr['v'] / 100
+            a_ms2 = (v2_ms - v1_ms) / delta_t
+            
+            accelerations.append({
+                'time': curr['t'],
+                'a_ms2': a_ms2,
+                'velocity': curr['v']
+            })
+    
+    if len(accelerations) == 0:
+        return 0
+    
+    # Calcola la potenza istantanea solo durante la fase concentrica
+    powers = []
+    for acc in accelerations:
+        height = height_map.get(acc['time'])
+        is_in_contact = height is not None and abs(height) <= CONTACT_THRESHOLD
+        
+        if is_in_contact and acc['velocity'] > 0 and abs(acc['a_ms2']) > 0.05:
+            force = body_mass_kg * (acc['a_ms2'] + G)
+            if force > body_mass_kg * G * 0.3:
+                v_ms = acc['velocity'] / 100  # cm/s -> m/s
+                power = force * v_ms
+                if power > 0:
+                    powers.append(power)
+    
+    if len(powers) == 0:
+        return 0
+    
+    return max(powers)
+
+
 @app.route('/api/analysis/results', methods=['GET'])
 def analysis_results():
-    """Risultati finali"""
+    """Risultati finali con tutti i calcoli"""
     final_results = get_state('final_results')
-    if final_results:
-        return jsonify({
-            'success': True,
-            'results': final_results,
-            'trajectory': get_state('trajectory_data'),
-            'velocity': get_state('velocity_data')
-        })
-    return jsonify({'success': False, 'error': 'Analisi non completata'})
+    if not final_results:
+        return jsonify({'success': False, 'error': 'Analisi non completata'})
+    
+    trajectory_data = get_state('trajectory_data') or []
+    velocity_data = get_state('velocity_data') or []
+    body_mass_kg = get_state('body_mass_kg') or 70.0
+    
+    # Calcola la velocità derivata dalla traiettoria
+    derived_velocity_data = compute_derived_velocity(trajectory_data)
+    
+    # Calcola tutti i valori aggiuntivi
+    calculated_average_force = calculate_average_force_from_velocity(derived_velocity_data, trajectory_data, body_mass_kg)
+    calculated_takeoff_velocity = calculate_takeoff_velocity(trajectory_data, derived_velocity_data)
+    calculated_concentric_time = calculate_concentric_time(trajectory_data, derived_velocity_data, body_mass_kg)
+    calculated_eccentric_time = calculate_eccentric_time(trajectory_data, derived_velocity_data)
+    calculated_contact_time = calculate_contact_time(trajectory_data, derived_velocity_data)
+    calculated_estimated_power = calculate_estimated_power(derived_velocity_data, trajectory_data, body_mass_kg)
+    phase_times = get_phase_times(trajectory_data, derived_velocity_data)
+    
+    # Aggiungi i valori calcolati ai risultati
+    enhanced_results = final_results.copy()
+    enhanced_results.update({
+        'calculated_average_force': round(calculated_average_force, 1),
+        'calculated_takeoff_velocity': round(calculated_takeoff_velocity, 1),
+        'calculated_concentric_time': round(calculated_concentric_time, 3),
+        'calculated_eccentric_time': round(calculated_eccentric_time, 3),
+        'calculated_contact_time': round(calculated_contact_time, 3),
+        'calculated_estimated_power': round(calculated_estimated_power, 1),
+    })
+    
+    return jsonify({
+        'success': True,
+        'results': enhanced_results,
+        'trajectory': trajectory_data,
+        'velocity': derived_velocity_data,  # Usa la velocità derivata invece di quella originale
+        'phase_times': phase_times
+    })
 
 
 @app.route('/api/analysis/pause', methods=['POST'])
@@ -696,24 +1134,52 @@ def stop_analysis():
 
 @app.route('/api/results/save', methods=['POST'])
 def save_results():
-    """Salva risultati in file JSON"""
+    """Salva risultati in file JSON con tutti i valori calcolati"""
     try:
         final_results = get_state('final_results')
         if not final_results:
             return jsonify({'success': False, 'error': 'Nessun risultato da salvare'})
+        
+        trajectory_data = get_state('trajectory_data') or []
+        velocity_data = get_state('velocity_data') or []
+        body_mass_kg = get_state('body_mass_kg') or 70.0
+        
+        # Calcola la velocità derivata dalla traiettoria
+        derived_velocity_data = compute_derived_velocity(trajectory_data)
+        
+        # Calcola tutti i valori aggiuntivi (come nell'endpoint /api/analysis/results)
+        calculated_average_force = calculate_average_force_from_velocity(derived_velocity_data, trajectory_data, body_mass_kg)
+        calculated_takeoff_velocity = calculate_takeoff_velocity(trajectory_data, derived_velocity_data)
+        calculated_concentric_time = calculate_concentric_time(trajectory_data, derived_velocity_data, body_mass_kg)
+        calculated_eccentric_time = calculate_eccentric_time(trajectory_data, derived_velocity_data)
+        calculated_contact_time = calculate_contact_time(trajectory_data, derived_velocity_data)
+        calculated_estimated_power = calculate_estimated_power(derived_velocity_data, trajectory_data, body_mass_kg)
+        phase_times = get_phase_times(trajectory_data, derived_velocity_data)
+        
+        # Aggiungi i valori calcolati ai risultati
+        enhanced_results = final_results.copy()
+        enhanced_results.update({
+            'calculated_average_force': round(calculated_average_force, 1),
+            'calculated_takeoff_velocity': round(calculated_takeoff_velocity, 1),
+            'calculated_concentric_time': round(calculated_concentric_time, 3),
+            'calculated_eccentric_time': round(calculated_eccentric_time, 3),
+            'calculated_contact_time': round(calculated_contact_time, 3),
+            'calculated_estimated_power': round(calculated_estimated_power, 1),
+        })
         
         save_dir = os.path.expanduser('~\\AppData\\Roaming\\Kin.ai\\last_jump')
         os.makedirs(save_dir, exist_ok=True)
         
         save_data = {
             'timestamp': datetime.now().isoformat(),
-            'results': final_results,
-            'trajectory': get_state('trajectory_data'),
-            'velocity': get_state('velocity_data'),
+            'results': enhanced_results,  # Usa enhanced_results invece di final_results
+            'trajectory': trajectory_data,
+            'velocity': derived_velocity_data,  # Usa la velocità derivata invece di quella originale
+            'phase_times': phase_times,  # Aggiungi anche i tempi delle fasi
             'settings': {
                 'fps': get_state('fps'),
                 'person_height_cm': get_state('person_height_cm'),
-                'body_mass_kg': get_state('body_mass_kg')
+                'body_mass_kg': body_mass_kg
             }
         }
         

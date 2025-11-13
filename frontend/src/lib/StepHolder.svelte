@@ -281,7 +281,8 @@
               data: {
                 ...resultsData.results,
                 trajectory: resultsData.trajectory,
-                velocity: resultsData.velocity
+                velocity: resultsData.velocity, // Ora è la velocità derivata
+                phase_times: resultsData.phase_times
               }
             });
           }
