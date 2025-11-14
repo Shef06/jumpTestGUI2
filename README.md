@@ -2,6 +2,7 @@
 [] Il backend non avvia piu' il frontend
 [] Il backend sta su 127.0.0.1:5000 (non su 0.0.0.0 o altri)
 [x] Il backend deve essere un .exe compilato, con tutte le librerie incluse
+[] Evitare delay artificiali, piuttosto mettete un await o qualcosa del genere che controlli quando si puo andare avanti, non 1.5 secondi di delay tanto per.
 
 # Jump Analyzer Pro - Flask + Svelte
 

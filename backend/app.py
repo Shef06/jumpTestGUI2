@@ -816,7 +816,7 @@ if __name__ == '__main__':
     # Funzione per aprire il browser dopo un breve delay
     def open_browser():
         import time
-        time.sleep(1.5)  # Attendi che il server sia avviato
+        time.sleep(1.5)  # Attendi che il server sia avviato #FIXME: Potete non mettere delay forzati inutilmente, piuttosto un async/await????
         if frontend_dist.exists():
             file_url = frontend_dist.as_uri()
             print(f"\n🌐 Apertura browser: {file_url}\n")
@@ -831,4 +831,4 @@ if __name__ == '__main__':
     print("🚀 Avvio server Flask su http://0.0.0.0:5000")
     print("   Il browser si aprirà automaticamente tra pochi secondi...")
     
-    app.run(debug=False, host='0.0.0.0', port=5000, threaded=True)
+    app.run(debug=False, host='127.0.0.1', port=5000, threaded=True)
