@@ -276,25 +276,29 @@
   }
 </script>
 
-<main class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-  <header class="bg-slate-800/50 backdrop-blur-sm border-b border-slate-700">
-    <div class="max-w-[1400px] mx-auto px-6 py-6">
-      <div class="flex items-center justify-between">
-        <h1 class="text-4xl font-bold text-white tracking-tight">Jump Analyzer Pro</h1>
-        <button on:click={cancelAndExit} class="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded-lg font-semibold border border-red-500/50 shadow-md transition-colors">
+<main class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900" role="main" aria-label="Jump Analyzer Pro - Analisi salto">
+  <header class="bg-slate-800/50 backdrop-blur-sm border-b border-slate-700" role="banner">
+    <div class="max-w-[1400px] mx-auto px-4 sm:px-6 py-4 sm:py-6">
+      <div class="flex items-center justify-between gap-4">
+        <h1 class="text-2xl sm:text-3xl lg:text-4xl font-bold text-white tracking-tight">Jump Analyzer Pro</h1>
+        <button 
+          on:click={cancelAndExit} 
+          class="bg-red-600 hover:bg-red-700 focus:bg-red-700 text-white px-4 sm:px-5 py-2 rounded-lg font-semibold border border-red-500/50 shadow-md transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-slate-800"
+          aria-label="Chiudi analisi e esci dall'applicazione"
+        >
           Chiudi Analisi
         </button>
       </div>
     </div>
   </header>
 
-  <div class="max-w-[1400px] mx-auto px-6 py-8">
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div class="lg:col-span-2" bind:this={videoColEl}>
+  <div class="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+      <div class="lg:col-span-2" bind:this={videoColEl} aria-label="Anteprima video">
         <VideoPlayer analysisCompleted={showResults} />
       </div>
 
-      <div class="lg:col-span-1" bind:this={stepColEl}>
+      <div class="lg:col-span-1" bind:this={stepColEl} aria-label="Pannello controllo">
         {#if !showResults}
           <StepHolder 
             {currentStep} 

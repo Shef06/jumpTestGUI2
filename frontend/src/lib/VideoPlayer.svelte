@@ -129,12 +129,12 @@
   }
 </script>
 
-<div class="video-container bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700" bind:this={containerEl}>
-  <div class="video-header bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-4">
-    <h2 class="text-xl font-semibold text-white">Anteprima Video</h2>
+<div class="video-container bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700" bind:this={containerEl} role="region" aria-label="Anteprima video">
+  <div class="video-header bg-gradient-to-r from-blue-600 to-purple-600 px-4 sm:px-6 py-3 sm:py-4">
+    <h2 class="text-lg sm:text-xl font-semibold text-white">Anteprima Video</h2>
   </div>
   
-  <div class="video-content aspect-video bg-black flex items-center justify-center relative" data-reflow={reflowTick}>
+  <div class="video-content aspect-video bg-black flex items-center justify-center relative" data-reflow={reflowTick} aria-live="polite" aria-atomic="true">
     {#if $appState.isCameraPreview && $appState.previewStream}
       <video
         bind:this={videoEl}
@@ -159,53 +159,59 @@
       
       <!-- Recording indicator -->
       {#if $appState.isRecording}
-        <div class="absolute top-4 right-4 flex items-center gap-2 bg-red-600 px-4 py-2 rounded-full">
-          <div class="w-3 h-3 bg-white rounded-full animate-pulse"></div>
-          <span class="text-white font-semibold text-sm">REC</span>
+        <div class="absolute top-3 sm:top-4 right-3 sm:right-4 flex items-center gap-2 bg-red-600 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full shadow-lg" role="status" aria-live="polite" aria-label="Registrazione in corso">
+          <div class="w-2.5 sm:w-3 h-2.5 sm:h-3 bg-white rounded-full animate-pulse" aria-hidden="true"></div>
+          <span class="text-white font-semibold text-xs sm:text-sm">REC</span>
         </div>
       {/if}
       
       <!-- Analysis status -->
       {#if $appState.isAnalyzing}
-        <div class="absolute top-4 left-4 bg-green-600 px-4 py-2 rounded-full">
-          <span class="text-white font-semibold text-sm">ANALYZING</span>
+        <div class="absolute top-3 sm:top-4 left-3 sm:left-4 bg-green-600 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full shadow-lg" role="status" aria-live="polite" aria-label="Analisi in corso">
+          <span class="text-white font-semibold text-xs sm:text-sm">ANALYZING</span>
         </div>
       {/if}
       
       <!-- Calibration status -->
       {#if $appState.isCalibrating}
-        <div class="absolute top-4 left-4 bg-yellow-600 px-4 py-2 rounded-full">
-          <span class="text-white font-semibold text-sm">CALIBRATING</span>
+        <div class="absolute top-3 sm:top-4 left-3 sm:left-4 bg-yellow-600 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full shadow-lg" role="status" aria-live="polite" aria-label="Calibrazione in corso">
+          <span class="text-white font-semibold text-xs sm:text-sm">CALIBRATING</span>
         </div>
       {/if}
 
       <!-- Playback slider (only after analysis) -->
       {#if analysisCompleted && !$appState.localVideoUrl}
-        <div class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-slate-900/80 backdrop-blur px-4 py-3 rounded-full border border-slate-700 flex items-center gap-4">
+        <div class="absolute bottom-3 sm:bottom-4 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-sm px-3 sm:px-4 py-2 sm:py-3 rounded-full border border-slate-700 flex items-center gap-2 sm:gap-4 shadow-xl max-w-[95%]">
+          <label for="frame-slider" class="sr-only">Seleziona frame</label>
           <input
+            id="frame-slider"
             type="range"
             min="0"
             max="{Math.max(totalFrames - 1, 0)}"
             bind:value={currentIndex}
             on:input={(e) => scheduleFetch(+e.target.value)}
-            class="w-64 md:w-96 accent-purple-500"
+            class="w-32 sm:w-48 md:w-64 lg:w-80 accent-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-slate-900 rounded"
+            aria-label="Frame {currentIndex + 1} di {Math.max(totalFrames, 0)}"
+            aria-valuemin="0"
+            aria-valuemax="{Math.max(totalFrames - 1, 0)}"
+            aria-valuenow={currentIndex}
           />
-          <div class="text-slate-300 text-sm whitespace-nowrap">
+          <div class="text-slate-300 text-xs sm:text-sm whitespace-nowrap font-medium" aria-live="polite">
             {`${currentIndex + 1} / ${Math.max(totalFrames, 0)}`}
           </div>
         </div>
         {#if errorMsg}
-          <div class="absolute bottom-16 left-1/2 -translate-x-1/2 bg-red-600/80 text-white text-xs px-3 py-1 rounded">
+          <div class="absolute bottom-20 sm:bottom-24 left-1/2 -translate-x-1/2 bg-red-600/90 text-white text-xs px-3 py-1.5 rounded shadow-lg border border-red-500/50" role="alert">
             {errorMsg}
           </div>
         {/if}
       {/if}
     {:else}
-      <div class="text-center p-8">
-        <svg class="w-24 h-24 mx-auto text-slate-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div class="text-center p-6 sm:p-8" role="status" aria-live="polite">
+        <svg class="w-16 sm:w-20 md:w-24 h-16 sm:h-20 md:h-24 mx-auto text-slate-500 mb-3 sm:mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
         </svg>
-        <p class="text-slate-400 text-lg">Nessun video caricato</p>
+        <p class="text-slate-300 text-base sm:text-lg font-medium">Nessun video caricato</p>
         <p class="text-slate-500 text-sm mt-2">Carica o registra un video per iniziare</p>
       </div>
     {/if}

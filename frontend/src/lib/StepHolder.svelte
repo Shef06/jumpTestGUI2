@@ -412,28 +412,29 @@
   }
 </script>
 
-<div class="step-container bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700 h-full flex flex-col">
-  <div class="step-header bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-4">
-    <div class="flex justify-between items-center">
+<div class="step-container bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700 h-full flex flex-col" role="region" aria-label="Pannello controllo analisi">
+  <div class="step-header bg-gradient-to-r from-purple-600 to-pink-600 px-4 sm:px-6 py-3 sm:py-4">
+    <div class="flex justify-between items-center gap-4">
       <div>
-        <h2 class="text-xl font-semibold text-white">Step Holder</h2>
-        <p class="text-purple-100 text-sm mt-1">Step {currentStep} di 3</p>
+        <h2 class="text-lg sm:text-xl font-semibold text-white">Step Holder</h2>
+        <p class="text-purple-100 text-xs sm:text-sm mt-1" aria-live="polite">Step {currentStep} di 3</p>
       </div>
       {#if currentStep > 1 || $appState.isCameraPreview}
         <button
           on:click={goBack}
-          class="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg transition-all duration-200 flex items-center gap-2"
+          class="bg-white/20 hover:bg-white/30 focus:bg-white/30 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg transition-all duration-200 flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-purple-600"
+          aria-label="Torna allo step precedente"
         >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
           </svg>
-          Indietro
+          <span class="hidden sm:inline">Indietro</span>
         </button>
       {/if}
     </div>
   </div>
   
-  <div class="step-content p-6 space-y-6 flex-1 overflow-auto">
+  <div class="step-content p-4 sm:p-6 space-y-4 sm:space-y-6 flex-1 overflow-auto">
     <CameraModal
       show={showCameraModal}
       loading={loadingCameras}
@@ -445,7 +446,7 @@
       on:select={(e) => (selectedCamera = e.detail.index)}
     />
     {#if errorMessage}
-      <div class="bg-red-500/10 border border-red-500/50 rounded-lg p-4">
+      <div class="bg-red-500/10 border border-red-500/50 rounded-lg p-3 sm:p-4" role="alert" aria-live="assertive">
         <p class="text-red-400 text-sm">{errorMessage}</p>
       </div>
     {/if}
@@ -453,7 +454,7 @@
     <!-- Step 1: Upload/Record Video -->
     {#if currentStep === 1}
       <div class="space-y-4">
-        <h3 class="text-lg font-semibold text-white mb-4">
+        <h3 class="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4">
           { $appState.inputMode === 'camera' ? '1. Registra Video' : '1. Carica o Registra Video' }
         </h3>
 
@@ -465,23 +466,25 @@
               on:change={handleFileSelect}
               disabled={isUploading || $appState.isRecording}
               class="hidden"
+              aria-label="Seleziona file video da caricare"
             />
-            <div class="btn-primary cursor-pointer text-center {isUploading ? 'opacity-50' : ''}">
-              <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div class="btn-primary cursor-pointer text-center {isUploading ? 'opacity-50' : ''}" role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && !isUploading && !$appState.isRecording && e.currentTarget.closest('label')?.querySelector('input')?.click()}>
+              <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
               </svg>
               {isUploading ? 'Caricamento...' : 'Carica Video'}
             </div>
           </label>
-          <div class="text-center text-slate-400 text-sm">oppure</div>
+          <div class="text-center text-slate-400 text-sm" aria-hidden="true">oppure</div>
         {/if}
 
         {#if !$appState.isRecording}
           <button
             on:click={openCameraModal}
             class="btn-secondary w-full"
+            aria-label={$appState.inputMode === 'camera' ? 'Cambia telecamera' : 'Apri modal selezione telecamera per registrare video'}
           >
-            <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
             { $appState.inputMode === 'camera' ? 'Cambia Telecamera' : 'Registra Video' }
@@ -490,12 +493,13 @@
             <button
               on:click={startRecording}
               class="btn-primary w-full mt-3"
+              aria-label="Avvia analisi video e inizia registrazione"
             >
               Analizza Video
             </button>
           {/if}
           {#if $appState.isCameraPreview}
-            <div class="bg-blue-500/10 border border-blue-500/50 rounded-lg p-3 text-blue-300 text-sm">
+            <div class="bg-blue-500/10 border border-blue-500/50 rounded-lg p-3 text-blue-300 text-sm" role="status" aria-live="polite">
               Anteprima fotocamera attiva. Premi "Analizza Video" per iniziare la registrazione, poi "Ferma Registrazione" al termine del salto.
             </div>
           {/if}
@@ -503,8 +507,9 @@
           <button
             on:click={stopRecording}
             class="btn-danger w-full"
+            aria-label="Ferma registrazione video"
           >
-            <svg class="w-5 h-5 inline mr-2" fill="currentColor" viewBox="0 0 24 24">
+            <svg class="w-5 h-5 inline mr-2" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <rect x="6" y="6" width="12" height="12" />
             </svg>
             Ferma Registrazione
@@ -516,7 +521,7 @@
     <!-- Step 2: Calibration -->
     {#if currentStep === 2}
       <div class="space-y-4">
-        <h3 class="text-lg font-semibold text-white mb-4">2. Calibrazione Sistema</h3>
+        <h3 class="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4">2. Calibrazione Sistema</h3>
         
         <div>
           <label for="fps-input" class="block text-sm font-medium text-slate-300 mb-2">
@@ -530,8 +535,9 @@
             max="240"
             disabled={isCalibrating}
             class="input-field"
+            aria-describedby="fps-help"
           />
-          <p class="text-slate-500 text-xs mt-1">Frame per secondo del video</p>
+          <p id="fps-help" class="text-slate-500 text-xs mt-1">Frame per secondo del video</p>
         </div>
         
         <div>
@@ -546,8 +552,9 @@
             max="250"
             disabled={isCalibrating}
             class="input-field"
+            aria-describedby="height-help"
           />
-          <p class="text-slate-500 text-xs mt-1">Altezza reale della persona</p>
+          <p id="height-help" class="text-slate-500 text-xs mt-1">Altezza reale della persona</p>
         </div>
         
         <div>
@@ -562,20 +569,22 @@
             max="150"
             disabled={isCalibrating}
             class="input-field"
+            aria-describedby="mass-help"
           />
-          <p class="text-slate-500 text-xs mt-1">Peso della persona</p>
+          <p id="mass-help" class="text-slate-500 text-xs mt-1">Peso della persona</p>
         </div>
         
         <button
           on:click={startAnalysisFromStep2}
           disabled={isCalibrating}
-          class="btn-primary w-full {isCalibrating ? 'opacity-50' : ''}"
+          class="btn-primary w-full"
+          aria-label={isCalibrating ? 'Calibrazione e analisi in corso' : 'Avvia calibrazione e analisi'}
         >
           {isCalibrating ? 'Calibrazione e Analisi in corso...' : 'Avvia Analisi'}
         </button>
         
         {#if isCalibrating}
-          <div class="bg-blue-500/10 border border-blue-500/50 rounded-lg p-4">
+          <div class="bg-blue-500/10 border border-blue-500/50 rounded-lg p-3 sm:p-4" role="status" aria-live="polite">
             <p class="text-blue-400 text-sm">Sistema in calibrazione. Assicurati che la persona sia in posizione eretta nel frame.</p>
           </div>
         {/if}
@@ -585,45 +594,46 @@
     <!-- Step 3: Analysis -->
     {#if currentStep === 3}
       <div class="space-y-4">
-        <h3 class="text-lg font-semibold text-white mb-4">3. Analisi Salto</h3>
+        <h3 class="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4">3. Analisi Salto</h3>
         
         {#if !isAnalyzing}
           <button
             on:click={startAnalysis}
             class="btn-primary w-full"
+            aria-label="Avvia analisi del salto"
           >
-            <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             Avvia Analisi
           </button>
         {:else}
-          <div class="bg-green-500/10 border border-green-500/50 rounded-lg p-4">
+          <div class="bg-green-500/10 border border-green-500/50 rounded-lg p-3 sm:p-4" role="status" aria-live="polite">
             <p class="text-green-400 text-sm font-medium">Analisi in corso...</p>
             <p class="text-slate-400 text-xs mt-1">Il sistema sta elaborando il salto</p>
           </div>
         {/if}
 
         <!-- Real-time data display: visibile anche prima che partano i dati -->
-        <div class="bg-slate-900/50 rounded-xl p-4 border border-slate-700">
-          <h4 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-3">Dati in Tempo Reale</h4>
-          <div class="grid grid-cols-2 gap-3">
-            <div class="text-center">
+        <div class="bg-slate-900/50 rounded-xl p-3 sm:p-4 border border-slate-700" role="region" aria-label="Dati in tempo reale">
+          <h4 class="text-xs sm:text-sm font-semibold text-slate-300 uppercase tracking-wide mb-3">Dati in Tempo Reale</h4>
+          <div class="grid grid-cols-2 gap-2 sm:gap-3" role="list">
+            <div class="text-center" role="listitem">
               <p class="text-slate-400 text-xs uppercase tracking-wide mb-1">Altezza Corrente</p>
-              <p class="text-xl font-bold text-blue-400">{($appState.realtimeData?.current_height ?? 0)} cm</p>
+              <p class="text-lg sm:text-xl font-bold text-blue-400" aria-live="polite">{($appState.realtimeData?.current_height ?? 0)} cm</p>
             </div>
-            <div class="text-center">
+            <div class="text-center" role="listitem">
               <p class="text-slate-400 text-xs uppercase tracking-wide mb-1">Altezza Max</p>
-              <p class="text-xl font-bold text-green-400">{($appState.realtimeData?.max_height ?? 0)} cm</p>
+              <p class="text-lg sm:text-xl font-bold text-green-400" aria-live="polite">{($appState.realtimeData?.max_height ?? 0)} cm</p>
             </div>
-            <div class="text-center">
+            <div class="text-center" role="listitem">
               <p class="text-slate-400 text-xs uppercase tracking-wide mb-1">Velocità Decollo</p>
-              <p class="text-xl font-bold text-purple-400">{($appState.realtimeData?.takeoff_velocity ?? 0)} cm/s</p>
+              <p class="text-lg sm:text-xl font-bold text-purple-400" aria-live="polite">{($appState.realtimeData?.takeoff_velocity ?? 0)} cm/s</p>
             </div>
-            <div class="text-center">
+            <div class="text-center" role="listitem">
               <p class="text-slate-400 text-xs uppercase tracking-wide mb-1">Potenza Est.</p>
-              <p class="text-xl font-bold text-yellow-400">{($appState.realtimeData?.estimated_power ?? 0)} W</p>
+              <p class="text-lg sm:text-xl font-bold text-yellow-400" aria-live="polite">{($appState.realtimeData?.estimated_power ?? 0)} W</p>
             </div>
           </div>
         </div>
@@ -634,6 +644,7 @@
               <button
                 on:click={resumeAnalysis}
                 class="btn-secondary flex-1"
+                aria-label="Riprendi analisi"
               >
                 Riprendi
               </button>
@@ -641,6 +652,7 @@
               <button
                 on:click={pauseAnalysis}
                 class="btn-secondary flex-1"
+                aria-label="Metti in pausa l'analisi"
               >
                 Pausa
               </button>
@@ -648,6 +660,7 @@
             <button
               on:click={cancelAnalysis}
               class="btn-danger flex-1"
+              aria-label="Annulla analisi"
             >
               Annulla
             </button>
@@ -657,15 +670,16 @@
     {/if}
     
     <!-- Progress indicator -->
-    <div class="mt-8 pt-6 border-t border-slate-700">
+    <div class="mt-6 sm:mt-8 pt-4 sm:pt-6 border-t border-slate-700" role="progressbar" aria-valuenow={currentStep} aria-valuemin="1" aria-valuemax="3" aria-label="Progresso analisi">
       <div class="flex justify-between items-center mb-2">
         <span class="text-xs text-slate-400">Progresso</span>
-        <span class="text-xs text-slate-400">{currentStep}/3</span>
+        <span class="text-xs text-slate-400 font-medium">{currentStep}/3</span>
       </div>
-      <div class="w-full bg-slate-700 rounded-full h-2">
+      <div class="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
         <div
           class="bg-gradient-to-r from-purple-600 to-pink-600 h-2 rounded-full transition-all duration-300"
           style="width: {(currentStep / 3) * 100}%"
+          aria-hidden="true"
         ></div>
       </div>
     </div>

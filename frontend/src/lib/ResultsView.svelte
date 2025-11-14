@@ -1524,34 +1524,34 @@
   }
 </script>
 
-<div class="results-container bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700 h-full flex flex-col">
-  <div class="results-header bg-gradient-to-r from-green-600 to-teal-600 px-6 py-4">
-    <h2 class="text-xl font-semibold text-white">Risultati Analisi</h2>
-    <p class="text-green-100 text-sm mt-1">Analisi completata con successo</p>
+<div class="results-container bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700 h-full flex flex-col" role="region" aria-label="Risultati analisi salto">
+  <div class="results-header bg-gradient-to-r from-green-600 to-teal-600 px-4 sm:px-6 py-3 sm:py-4">
+    <h2 class="text-lg sm:text-xl font-semibold text-white">Risultati Analisi</h2>
+    <p class="text-green-100 text-xs sm:text-sm mt-1">Analisi completata con successo</p>
   </div>
   
-  <div class="results-content p-6 space-y-6 flex-1 overflow-auto">
+  <div class="results-content p-4 sm:p-6 space-y-4 sm:space-y-6 flex-1 overflow-auto">
     <!-- Main Metrics -->
-    <div class="bg-slate-900/50 rounded-xl p-5 border border-slate-700">
-      <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Metriche Principali</h3>
-      <div class="grid grid-cols-2 gap-4">
-        <div>
+    <div class="bg-slate-900/50 rounded-xl p-4 sm:p-5 border border-slate-700" role="region" aria-label="Metriche principali">
+      <h3 class="text-xs sm:text-sm font-semibold text-slate-300 uppercase tracking-wide mb-3 sm:mb-4">Metriche Principali</h3>
+      <div class="grid grid-cols-2 gap-3 sm:gap-4" role="list">
+        <div role="listitem">
           <p class="text-xs text-slate-400 mb-1">Altezza Max</p>
-          <p class="text-2xl font-bold text-green-400">{results.max_height} cm</p>
+          <p class="text-xl sm:text-2xl font-bold text-green-400" aria-live="polite">{results.max_height} cm</p>
         </div>
-        <div>
+        <div role="listitem">
           <p class="text-xs text-slate-400 mb-1">Tempo di Volo</p>
-          <p class="text-2xl font-bold text-blue-400">{results.flight_time} s</p>
+          <p class="text-xl sm:text-2xl font-bold text-blue-400" aria-live="polite">{results.flight_time} s</p>
         </div>
-        <div>
+        <div role="listitem">
           <p class="text-xs text-slate-400 mb-1">Velocità Decollo</p>
-          <p class="text-2xl font-bold text-purple-400">
+          <p class="text-xl sm:text-2xl font-bold text-purple-400" aria-live="polite">
             {(results.calculated_takeoff_velocity || results.takeoff_velocity || 0)} cm/s
           </p>
         </div>
-        <div>
+        <div role="listitem">
           <p class="text-xs text-slate-400 mb-1">Potenza Est.</p>
-          <p class="text-2xl font-bold text-yellow-400">
+          <p class="text-xl sm:text-2xl font-bold text-yellow-400" aria-live="polite">
             {(results.calculated_estimated_power || results.estimated_power || 0)} W
           </p>
         </div>
@@ -1559,47 +1559,47 @@
     </div>
     
     <!-- Phase Timing -->
-    <div class="bg-slate-900/50 rounded-xl p-5 border border-slate-700">
-      <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Analisi Fasi</h3>
-      <div class="space-y-3">
-        <div class="flex justify-between items-center">
-          <span class="text-sm text-slate-400">Tempo Contatto</span>
-          <span class="text-lg font-semibold text-white">
+    <div class="bg-slate-900/50 rounded-xl p-4 sm:p-5 border border-slate-700" role="region" aria-label="Analisi fasi">
+      <h3 class="text-xs sm:text-sm font-semibold text-slate-300 uppercase tracking-wide mb-3 sm:mb-4">Analisi Fasi</h3>
+      <div class="space-y-2.5 sm:space-y-3" role="list">
+        <div class="flex justify-between items-center" role="listitem">
+          <span class="text-xs sm:text-sm text-slate-400">Tempo Contatto</span>
+          <span class="text-base sm:text-lg font-semibold text-white" aria-live="polite">
             {(results.calculated_contact_time || results.contact_time || 0)} s
           </span>
         </div>
-        <div class="flex justify-between items-center">
-          <span class="text-sm text-slate-400">Fase Eccentrica</span>
-          <span class="text-lg font-semibold text-white">
+        <div class="flex justify-between items-center" role="listitem">
+          <span class="text-xs sm:text-sm text-slate-400">Fase Eccentrica</span>
+          <span class="text-base sm:text-lg font-semibold text-white" aria-live="polite">
             {(results.calculated_eccentric_time || results.eccentric_time || 0)} s
           </span>
         </div>
-        <div class="flex justify-between items-center">
-          <span class="text-sm text-slate-400">Fase Concentrica</span>
-          <span class="text-lg font-semibold text-white">
+        <div class="flex justify-between items-center" role="listitem">
+          <span class="text-xs sm:text-sm text-slate-400">Fase Concentrica</span>
+          <span class="text-base sm:text-lg font-semibold text-white" aria-live="polite">
             {(results.calculated_concentric_time || results.concentric_time || 0)} s
           </span>
         </div>
-        <div class="flex justify-between items-center">
-          <span class="text-sm text-slate-400">Tempo Caduta</span>
-          <span class="text-lg font-semibold text-white">{results.fall_time} s</span>
+        <div class="flex justify-between items-center" role="listitem">
+          <span class="text-xs sm:text-sm text-slate-400">Tempo Caduta</span>
+          <span class="text-base sm:text-lg font-semibold text-white" aria-live="polite">{results.fall_time} s</span>
         </div>
       </div>
     </div>
     
     <!-- Biomechanical Parameters -->
-    <div class="bg-slate-900/50 rounded-xl p-5 border border-slate-700">
-      <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Parametri Biomeccanici</h3>
-      <div class="space-y-3">
-        <div class="flex justify-between items-center">
-          <span class="text-sm text-slate-400">Forza Media</span>
-          <span class="text-lg font-semibold text-white">
+    <div class="bg-slate-900/50 rounded-xl p-4 sm:p-5 border border-slate-700" role="region" aria-label="Parametri biomeccanici">
+      <h3 class="text-xs sm:text-sm font-semibold text-slate-300 uppercase tracking-wide mb-3 sm:mb-4">Parametri Biomeccanici</h3>
+      <div class="space-y-2.5 sm:space-y-3" role="list">
+        <div class="flex justify-between items-center" role="listitem">
+          <span class="text-xs sm:text-sm text-slate-400">Forza Media</span>
+          <span class="text-base sm:text-lg font-semibold text-white" aria-live="polite">
             {(results.calculated_average_force || results.average_force || 0)} N
           </span>
         </div>
-        <div class="flex justify-between items-center">
-          <span class="text-sm text-slate-400">Salto Rilevato</span>
-          <span class="text-lg font-semibold {results.jump_detected ? 'text-green-400' : 'text-red-400'}">
+        <div class="flex justify-between items-center" role="listitem">
+          <span class="text-xs sm:text-sm text-slate-400">Salto Rilevato</span>
+          <span class="text-base sm:text-lg font-semibold {results.jump_detected ? 'text-green-400' : 'text-red-400'}" aria-live="polite">
             {results.jump_detected ? 'Sì' : 'No'}
           </span>
         </div>
@@ -1608,82 +1608,84 @@
     
     <!-- Trajectory Chart -->
     {#if $appState.trajectoryData.length > 0}
-      <div class="bg-slate-900/50 rounded-xl p-5 border border-slate-700">
-        <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Traiettoria del Salto</h3>
+      <div class="bg-slate-900/50 rounded-xl p-4 sm:p-5 border border-slate-700" role="region" aria-label="Grafico traiettoria">
+        <h3 class="text-xs sm:text-sm font-semibold text-slate-300 uppercase tracking-wide mb-3 sm:mb-4">Traiettoria del Salto</h3>
         <canvas
           bind:this={trajectoryCanvas}
           width="400"
           height="250"
-          class="w-full rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+          class="w-full rounded-lg cursor-pointer hover:opacity-90 focus:opacity-90 transition-opacity focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-slate-900"
           on:click={() => openFullscreenChart('trajectory')}
           role="button"
           tabindex="0"
-          on:keydown={(e) => e.key === 'Enter' && openFullscreenChart('trajectory')}
-          title="Clicca per ingrandire"
+          on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && openFullscreenChart('trajectory')}
+          aria-label="Grafico traiettoria del salto. Clicca per ingrandire"
         ></canvas>
       </div>
     {/if}
     
     <!-- Velocity Chart -->
     {#if derivedVelocityData.length > 0}
-      <div class="bg-slate-900/50 rounded-xl p-5 border border-slate-700">
-        <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Velocità nel Tempo</h3>
+      <div class="bg-slate-900/50 rounded-xl p-4 sm:p-5 border border-slate-700" role="region" aria-label="Grafico velocità">
+        <h3 class="text-xs sm:text-sm font-semibold text-slate-300 uppercase tracking-wide mb-3 sm:mb-4">Velocità nel Tempo</h3>
         <canvas
           bind:this={velocityCanvas}
           width="400"
           height="250"
-          class="w-full rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+          class="w-full rounded-lg cursor-pointer hover:opacity-90 focus:opacity-90 transition-opacity focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-slate-900"
           on:click={() => openFullscreenChart('velocity')}
           role="button"
           tabindex="0"
-          on:keydown={(e) => e.key === 'Enter' && openFullscreenChart('velocity')}
-          title="Clicca per ingrandire"
+          on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && openFullscreenChart('velocity')}
+          aria-label="Grafico velocità nel tempo. Clicca per ingrandire"
         ></canvas>
       </div>
     {/if}
     
     <!-- Combined Chart -->
     {#if $appState.trajectoryData.length > 0 && derivedVelocityData.length > 0}
-      <div class="bg-slate-900/50 rounded-xl p-5 border border-slate-700">
-        <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Confronto Traiettoria e Velocità</h3>
+      <div class="bg-slate-900/50 rounded-xl p-4 sm:p-5 border border-slate-700" role="region" aria-label="Grafico confronto">
+        <h3 class="text-xs sm:text-sm font-semibold text-slate-300 uppercase tracking-wide mb-3 sm:mb-4">Confronto Traiettoria e Velocità</h3>
         <canvas
           bind:this={combinedCanvas}
           width="400"
           height="250"
-          class="w-full rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+          class="w-full rounded-lg cursor-pointer hover:opacity-90 focus:opacity-90 transition-opacity focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-slate-900"
           on:click={() => openFullscreenChart('combined')}
           role="button"
           tabindex="0"
-          on:keydown={(e) => e.key === 'Enter' && openFullscreenChart('combined')}
-          title="Clicca per ingrandire"
+          on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && openFullscreenChart('combined')}
+          aria-label="Grafico confronto traiettoria e velocità. Clicca per ingrandire"
         ></canvas>
       </div>
     {/if}
     
     <!-- Save message -->
     {#if saveMessage}
-      <div class="bg-blue-500/10 border border-blue-500/50 rounded-lg p-4">
+      <div class="bg-blue-500/10 border border-blue-500/50 rounded-lg p-3 sm:p-4" role="status" aria-live="polite">
         <p class="text-blue-400 text-sm">{saveMessage}</p>
       </div>
     {/if}
     
     <!-- Actions -->
-    <div class="flex gap-3 pt-4">
+    <div class="flex flex-col sm:flex-row gap-2 sm:gap-3 pt-3 sm:pt-4">
       <button
         on:click={saveResults}
         disabled={isSaving}
-        class="flex-1 bg-gradient-to-r from-green-600 to-teal-600 text-white px-6 py-3 rounded-lg font-semibold hover:from-green-700 hover:to-teal-700 transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+        class="flex-1 bg-gradient-to-r from-green-600 to-teal-600 text-white px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg font-semibold hover:from-green-700 hover:to-teal-700 focus:from-green-700 focus:to-teal-700 transition-all duration-200 shadow-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+        aria-label={isSaving ? 'Salvataggio in corso' : 'Salva risultati analisi'}
       >
-        <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3-3m0 0l-3 3m3-3v12" />
         </svg>
         {isSaving ? 'Salvataggio...' : 'Salva Risultati'}
       </button>
       <button
         on:click={handleReset}
-        class="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:from-blue-700 hover:to-purple-700 transition-all duration-200 shadow-lg hover:shadow-xl"
+        class="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg font-semibold hover:from-blue-700 hover:to-purple-700 focus:from-blue-700 focus:to-purple-700 transition-all duration-200 shadow-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-slate-800"
+        aria-label="Avvia una nuova analisi"
       >
-        <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
         </svg>
         Nuova Analisi
@@ -1694,35 +1696,29 @@
   <!-- Fullscreen Chart Modal -->
   {#if fullscreenChart}
     <div 
-      class="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
+      class="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
-      aria-label="Grafico a schermo intero"
+      aria-labelledby="fullscreen-chart-title"
+      on:click|self={closeFullscreenChart}
+      on:keydown={(e) => e.key === 'Escape' && closeFullscreenChart()}
     >
-      <!-- Backdrop clickable area -->
-      <button
-        class="absolute inset-0 w-full h-full bg-transparent border-0 p-0 cursor-default"
-        on:click={closeFullscreenChart}
-        on:keydown={(e) => e.key === 'Escape' && closeFullscreenChart()}
-        aria-label="Chiudi modal"
-        type="button"
-      ></button>
       <div 
-        class="relative bg-slate-900 rounded-xl p-6 max-w-[95vw] max-h-[95vh] overflow-auto z-10"
+        class="relative bg-slate-900 rounded-xl p-4 sm:p-6 max-w-[95vw] max-h-[95vh] overflow-auto z-10 shadow-2xl border border-slate-700"
       >
         <!-- Close button -->
         <button
           on:click={closeFullscreenChart}
-          class="absolute top-4 right-4 text-white hover:text-red-400 transition-colors z-10 bg-slate-800 rounded-full p-2"
-          aria-label="Chiudi"
+          class="absolute top-3 sm:top-4 right-3 sm:right-4 text-white hover:text-red-400 focus:text-red-400 transition-colors z-10 bg-slate-800 rounded-full p-2 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+          aria-label="Chiudi grafico a schermo intero"
         >
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-5 sm:w-6 h-5 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
         
         <!-- Chart title -->
-        <h3 class="text-lg font-semibold text-white mb-4">
+        <h3 id="fullscreen-chart-title" class="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4 pr-10">
           {#if fullscreenChart === 'trajectory'}
             Traiettoria del Salto
           {:else if fullscreenChart === 'velocity'}
