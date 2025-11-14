@@ -1,0 +1,16 @@
+# PyInstaller build files
+build/
+dist/
+*.spec.bak
+*.pyc
+__pycache__/
+
+# File temporanei
+*.tmp
+*.log
+
+# Eseguibili
+*.exe
+*.app
+
+

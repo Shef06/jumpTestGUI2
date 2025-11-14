@@ -47,8 +47,8 @@ app_state = {
     'cap': None,
     'analyzer': None,
     'video_writer': None,
-    'person_height_cm': 170.0,
-    'body_mass_kg': 70.0,
+    'person_height_cm': 174.0,
+    'body_mass_kg': 62.0,
     'fps': 30,
     'camera_index': 0,
     'current_video_frame': None,
@@ -1156,15 +1156,15 @@ def save_results():
         calculated_estimated_power = calculate_estimated_power(derived_velocity_data, trajectory_data, body_mass_kg)
         phase_times = get_phase_times(trajectory_data, derived_velocity_data)
         
-        # Aggiungi i valori calcolati ai risultati
+        # Aggiungi i valori calcolati ai risultati (senza prefisso "calculated_")
         enhanced_results = final_results.copy()
         enhanced_results.update({
-            'calculated_average_force': round(calculated_average_force, 1),
-            'calculated_takeoff_velocity': round(calculated_takeoff_velocity, 1),
-            'calculated_concentric_time': round(calculated_concentric_time, 3),
-            'calculated_eccentric_time': round(calculated_eccentric_time, 3),
-            'calculated_contact_time': round(calculated_contact_time, 3),
-            'calculated_estimated_power': round(calculated_estimated_power, 1),
+            'average_force': round(calculated_average_force, 1),
+            'takeoff_velocity': round(calculated_takeoff_velocity, 1),
+            'concentric_time': round(calculated_concentric_time, 3),
+            'eccentric_time': round(calculated_eccentric_time, 3),
+            'contact_time': round(calculated_contact_time, 3),
+            'estimated_power': round(calculated_estimated_power, 1),
         })
         
         save_dir = os.path.expanduser('~\\AppData\\Roaming\\Kin.ai\\last_jump')

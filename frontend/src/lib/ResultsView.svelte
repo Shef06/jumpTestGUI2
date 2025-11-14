@@ -1039,27 +1039,59 @@
     const firstTrajectoryPoint = trajectoryData.find(d => Math.abs(d.t - firstCommonTime) < 0.01) || trajectoryData[0];
     const firstVelocityPoint = velocityData.find(d => Math.abs(d.t - firstCommonTime) < 0.01) || velocityData[0];
     
-    // Calcola l'offset per allineare i primi punti
+    // Calcola la Y del primo punto della traiettoria (punto di riferimento fisso)
     const trajectoryFirstY = height - padding - ((firstTrajectoryPoint.y - minY) / deltaY) * chartHeight;
-    const velocityFirstY = height - padding - ((firstVelocityPoint.v - minV) / deltaV) * chartHeight;
-    let velocityOffset = trajectoryFirstY - velocityFirstY;
     
-    // Calcola il range effettivo della velocità dopo l'applicazione dell'offset
-    // per assicurarsi che tutti i punti rimangano visibili
+    // Calcola la Y base del primo punto della velocità (senza offset)
+    const firstVelocityBaseY = height - padding - ((firstVelocityPoint.v - minV) / deltaV) * chartHeight;
+    
+    // Calcola l'offset base per allineare i primi punti
+    const baseVelocityOffset = trajectoryFirstY - firstVelocityBaseY;
+    
+    // Calcola tutte le Y della velocità dopo l'offset base (per verificare se escono)
     const velocityYPositions = velocityData.map(point => {
       const baseY = height - padding - ((point.v - minV) / deltaV) * chartHeight;
-      return baseY + velocityOffset;
+      return baseY + baseVelocityOffset;
     });
     
     const minVelocityY = Math.min(...velocityYPositions);
     const maxVelocityY = Math.max(...velocityYPositions);
+    const velocityRange = maxVelocityY - minVelocityY;
+    const availableHeight = height - 2 * padding;
     
-    // Se alcuni punti escono dal canvas, aggiusta l'offset
-    if (minVelocityY < padding) {
-      velocityOffset += (padding - minVelocityY);
-    }
-    if (maxVelocityY > height - padding) {
-      velocityOffset -= (maxVelocityY - (height - padding));
+    // Calcola scale e offset finali per mantenere tutto visibile e allineato
+    // Il primo punto deve sempre rimanere allineato, quindi scaliamo rispetto al primo punto
+    let velocityScale = 1;
+    let velocityOffset = baseVelocityOffset;
+    
+    // Verifica se alcuni punti escono dal canvas o se il range è troppo grande
+    if (minVelocityY < padding || maxVelocityY > height - padding || velocityRange > availableHeight) {
+      // Calcola il range necessario per mostrare tutti i punti
+      // Dopo lo scale, tutti i punti devono essere tra padding e height - padding
+      // Il primo punto rimane fisso a trajectoryFirstY
+      
+      // Calcola le distanze dal primo punto (in coordinate canvas)
+      const distancesFromFirst = velocityYPositions.map(y => y - trajectoryFirstY);
+      const minDistance = Math.min(...distancesFromFirst);
+      const maxDistance = Math.max(...distancesFromFirst);
+      
+      // Calcola quanto spazio serve sopra e sotto il primo punto
+      const spaceNeededAbove = Math.max(0, maxDistance);
+      const spaceNeededBelow = Math.abs(Math.min(0, minDistance));
+      const totalSpaceNeeded = spaceNeededAbove + spaceNeededBelow;
+      
+      // Calcola lo spazio disponibile sopra e sotto il primo punto
+      const spaceAvailableAbove = height - padding - trajectoryFirstY;
+      const spaceAvailableBelow = trajectoryFirstY - padding;
+      const totalSpaceAvailable = spaceAvailableAbove + spaceAvailableBelow;
+      
+      // Se serve più spazio di quello disponibile, scala
+      if (totalSpaceNeeded > totalSpaceAvailable) {
+        velocityScale = totalSpaceAvailable / totalSpaceNeeded;
+      }
+      
+      // L'offset rimane lo stesso perché scaliamo rispetto al primo punto
+      velocityOffset = baseVelocityOffset;
     }
     
     // Usa i tempi delle fasi dal backend
@@ -1117,7 +1149,10 @@
     
     // Linea zero per la velocità
     if (minV <= 0 && maxV >= 0) {
-      const zeroY = height - padding - ((0 - minV) / deltaV) * chartHeight + velocityOffset;
+      const zeroBaseY = height - padding - ((0 - minV) / deltaV) * chartHeight;
+      // Scala rispetto al primo punto per mantenere l'allineamento
+      const zeroScaledY = firstVelocityBaseY + (zeroBaseY - firstVelocityBaseY) * velocityScale;
+      const zeroY = zeroScaledY + velocityOffset;
       ctx.strokeStyle = VELOCITY_STYLE.zero;
       ctx.setLineDash([6, 6]);
       ctx.beginPath();
@@ -1167,7 +1202,7 @@
     ctx.stroke();
     ctx.shadowBlur = 0;
     
-    // Disegna la velocità (con offset per allineare il primo punto)
+    // Disegna la velocità (con offset e scale per allineare il primo punto e mantenere tutto visibile)
     ctx.lineWidth = 3;
     ctx.strokeStyle = VELOCITY_STYLE.line;
     ctx.shadowColor = VELOCITY_STYLE.lineShadow;
@@ -1176,7 +1211,10 @@
     ctx.beginPath();
     velocityData.forEach((point, i) => {
       const x = padding + ((point.t - minT) / deltaT) * chartWidth;
-      const y = height - padding - ((point.v - minV) / deltaV) * chartHeight + velocityOffset;
+      const baseY = height - padding - ((point.v - minV) / deltaV) * chartHeight;
+      // Scala rispetto al primo punto per mantenere l'allineamento
+      const scaledY = firstVelocityBaseY + (baseY - firstVelocityBaseY) * velocityScale;
+      const y = scaledY + velocityOffset;
       if (i === 0) {
         ctx.moveTo(x, y);
       } else {
@@ -1203,7 +1241,10 @@
     velocityData.forEach((point, i) => {
       if (i % Math.max(1, Math.floor(velocityData.length / 25)) === 0 || i === velocityData.length - 1) {
         const x = padding + ((point.t - minT) / deltaT) * chartWidth;
-        const y = height - padding - ((point.v - minV) / deltaV) * chartHeight + velocityOffset;
+        const baseY = height - padding - ((point.v - minV) / deltaV) * chartHeight;
+        // Scala rispetto al primo punto per mantenere l'allineamento
+        const scaledY = firstVelocityBaseY + (baseY - firstVelocityBaseY) * velocityScale;
+        const y = scaledY + velocityOffset;
         ctx.beginPath();
         ctx.arc(x, y, 3, 0, Math.PI * 2);
         ctx.fill();

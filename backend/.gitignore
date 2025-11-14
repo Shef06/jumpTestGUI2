@@ -1,0 +1,13 @@
+# PyInstaller - file generati (non i file di configurazione in exe_build)
+build/
+dist/
+*.pyc
+__pycache__/
+
+# File temporanei
+*.tmp
+*.log
+
+# Eseguibili generati (non i file di configurazione)
+# Nota: i file .spec e script di build in exe_build/ sono inclusi nel repository
+
