@@ -1,3 +1,8 @@
+# Note / TODO
+[] Il backend non avvia piu' il frontend
+[] Il backend sta su 127.0.0.1:5000 (non su 0.0.0.0 o altri)
+[x] Il backend deve essere un .exe compilato, con tutte le librerie incluse
+
 # Jump Analyzer Pro - Flask + Svelte
 
 Sistema professionale per l'analisi biomeccanica del salto verticale, completamente riscritto con backend Flask e frontend Svelte.
