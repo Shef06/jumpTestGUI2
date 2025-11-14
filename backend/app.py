@@ -1248,30 +1248,6 @@ def video_frame_at():
 
 
 if __name__ == '__main__':
-    import webbrowser
-    import threading
-    from pathlib import Path
+    print("🚀 Avvio server Flask su http://127.0.0.1:5000")
     
-    # Determina il percorso assoluto del file index.html
-    backend_dir = Path(__file__).parent
-    frontend_dist = backend_dir.parent / 'frontend' / 'dist' / 'index.html'
-    
-    # Funzione per aprire il browser dopo un breve delay
-    def open_browser():
-        import time
-        time.sleep(1.5)  # Attendi che il server sia avviato
-        if frontend_dist.exists():
-            file_url = frontend_dist.as_uri()
-            print(f"\n🌐 Apertura browser: {file_url}\n")
-            webbrowser.open(file_url)
-        else:
-            print(f"\n⚠️  File index.html non trovato in: {frontend_dist}")
-            print("   Esegui prima 'npm run build' nella cartella frontend\n")
-    
-    # Avvia il thread per aprire il browser
-    threading.Thread(target=open_browser, daemon=True).start()
-    
-    print("🚀 Avvio server Flask su http://0.0.0.0:5000")
-    print("   Il browser si aprirà automaticamente tra pochi secondi...")
-    
-    app.run(debug=False, host='0.0.0.0', port=5000, threaded=True)
+    app.run(debug=False, host='127.0.0.1', port=5000, threaded=True)
