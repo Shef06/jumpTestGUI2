@@ -30,6 +30,18 @@
   let isLoadingPlayer = false;
   let playerLoadError = '';
   let playerName = '';
+  let hasAutoLoaded = false; // Flag per evitare caricamenti multipli
+  
+  // Carica automaticamente i dati del giocatore quando si entra nello Step 2
+  $: if (currentStep === 2 && !hasAutoLoaded && playerId && sessionId) {
+    hasAutoLoaded = true;
+    loadPlayerData();
+  }
+  
+  // Reset del flag quando si esce dallo Step 2
+  $: if (currentStep !== 2) {
+    hasAutoLoaded = false;
+  }
   
   // Step 1: Upload/Record Video
   async function handleFileSelect(event) {
@@ -567,8 +579,8 @@
       <div class="space-y-4">
         <h3 class="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4">2. Calibrazione Sistema</h3>
         
-        <!-- Carica dati giocatore -->
-        <div class="bg-slate-900/50 rounded-xl p-3 sm:p-4 border border-slate-700">
+        <!-- Carica dati giocatore per debug -->
+        <!-- <div class="bg-slate-900/50 rounded-xl p-3 sm:p-4 border border-slate-700">
           <h4 class="text-xs sm:text-sm font-semibold text-slate-300 uppercase tracking-wide mb-2 sm:mb-3">Carica Dati Giocatore</h4>
           
           <div class="space-y-2 sm:space-y-3">
@@ -638,7 +650,7 @@
               </div>
             {/if}
           </div>
-        </div>
+        </div> -->
         
         <div>
           <label for="fps-input" class="block text-sm font-medium text-slate-300 mb-2">
