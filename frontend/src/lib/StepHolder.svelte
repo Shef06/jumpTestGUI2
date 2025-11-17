@@ -13,8 +13,8 @@
   let isUploading = false;
   let uploadProgress = 0;
   let fps = 30;
-  let personHeight = 170;
-  let bodyMass = 70;
+  let personHeight = 174;
+  let bodyMass = 62;
   let errorMessage = '';
   let isCalibrating = false;
   let isAnalyzing = false;
@@ -25,6 +25,11 @@
   let selectedCamera = null; // indice nella lista availableCameras
   let loadingCameras = false;
   let cameraError = '';
+  let playerId = 1;
+  let sessionId = '94822145f84207b6792a83e2d6708c9ce009153bcb34656647de4851ce80214f';
+  let isLoadingPlayer = false;
+  let playerLoadError = '';
+  let playerName = '';
   
   // Step 1: Upload/Record Video
   async function handleFileSelect(event) {
@@ -410,6 +415,45 @@
       }
     }, 500);
   }
+  
+  // Funzione per caricare i dati del giocatore
+  async function loadPlayerData() {
+    if (!playerId || !sessionId) {
+      playerLoadError = 'Inserisci ID giocatore e Session ID';
+      return;
+    }
+    
+    isLoadingPlayer = true;
+    playerLoadError = '';
+    playerName = '';
+    
+    try {
+      const result = await api.getPlayerData(Number(playerId), sessionId);
+      
+      if (result.success && result.data) {
+        // Aggiorna i campi con i dati del giocatore
+        personHeight = result.data.height_cm || personHeight;
+        bodyMass = result.data.weight_kg || bodyMass;
+        
+        // Aggiorna anche nel backend
+        await api.setHeight(personHeight);
+        await api.setMass(bodyMass);
+        
+        // Mostra il nome del giocatore
+        if (result.data.name && result.data.surname) {
+          playerName = `${result.data.name} ${result.data.surname}`;
+        } else if (result.data.name) {
+          playerName = result.data.name;
+        }
+      } else {
+        playerLoadError = result.error || 'Errore nel caricamento dei dati del giocatore';
+      }
+    } catch (error) {
+      playerLoadError = `Errore: ${error.message}`;
+    } finally {
+      isLoadingPlayer = false;
+    }
+  }
 </script>
 
 <div class="step-container bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700 h-full flex flex-col" role="region" aria-label="Pannello controllo analisi">
@@ -434,7 +478,7 @@
     </div>
   </div>
   
-  <div class="step-content p-4 sm:p-6 space-y-4 sm:space-y-6 flex-1 overflow-auto">
+  <div class="step-content p-3 sm:p-4 md:p-6 space-y-3 sm:space-y-4 md:space-y-6 flex-1 overflow-auto">
     <CameraModal
       show={showCameraModal}
       loading={loadingCameras}
@@ -522,6 +566,79 @@
     {#if currentStep === 2}
       <div class="space-y-4">
         <h3 class="text-base sm:text-lg font-semibold text-white mb-3 sm:mb-4">2. Calibrazione Sistema</h3>
+        
+        <!-- Carica dati giocatore -->
+        <div class="bg-slate-900/50 rounded-xl p-3 sm:p-4 border border-slate-700">
+          <h4 class="text-xs sm:text-sm font-semibold text-slate-300 uppercase tracking-wide mb-2 sm:mb-3">Carica Dati Giocatore</h4>
+          
+          <div class="space-y-2 sm:space-y-3">
+            <div>
+              <label for="player-id-input" class="block text-sm font-medium text-slate-300 mb-2">
+                ID Giocatore
+              </label>
+              <input
+                id="player-id-input"
+                type="number"
+                bind:value={playerId}
+                min="1"
+                disabled={isCalibrating || isLoadingPlayer}
+                class="input-field"
+                placeholder="1"
+                aria-describedby="player-id-help"
+              />
+              <p id="player-id-help" class="text-slate-500 text-xs mt-1">ID del giocatore da caricare</p>
+            </div>
+            
+            <div>
+              <label for="session-id-input" class="block text-sm font-medium text-slate-300 mb-2">
+                Session ID
+              </label>
+              <input
+                id="session-id-input"
+                type="text"
+                bind:value={sessionId}
+                disabled={isCalibrating || isLoadingPlayer}
+                class="input-field"
+                placeholder="Session ID"
+                aria-describedby="session-id-help"
+              />
+              <p id="session-id-help" class="text-slate-500 text-xs mt-1">Session ID per l'autenticazione</p>
+            </div>
+            
+            <button
+              on:click={loadPlayerData}
+              disabled={isCalibrating || isLoadingPlayer}
+              class="btn-secondary w-full"
+              aria-label={isLoadingPlayer ? 'Caricamento dati in corso' : 'Carica dati giocatore'}
+            >
+              {#if isLoadingPlayer}
+                <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Caricamento...
+              {:else}
+                <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                Carica Dati Giocatore
+              {/if}
+            </button>
+            
+            {#if playerLoadError}
+              <div class="bg-red-500/10 border border-red-500/50 rounded-lg p-2 sm:p-3" role="alert" aria-live="assertive">
+                <p class="text-red-400 text-xs sm:text-sm">{playerLoadError}</p>
+              </div>
+            {/if}
+            
+            {#if playerName}
+              <div class="bg-green-500/10 border border-green-500/50 rounded-lg p-2 sm:p-3" role="status" aria-live="polite">
+                <p class="text-green-400 text-xs sm:text-sm font-medium">Dati caricati per: {playerName}</p>
+                <p class="text-slate-400 text-xs mt-1">Altezza e peso aggiornati automaticamente</p>
+              </div>
+            {/if}
+          </div>
+        </div>
         
         <div>
           <label for="fps-input" class="block text-sm font-medium text-slate-300 mb-2">
@@ -616,24 +733,24 @@
         {/if}
 
         <!-- Real-time data display: visibile anche prima che partano i dati -->
-        <div class="bg-slate-900/50 rounded-xl p-3 sm:p-4 border border-slate-700" role="region" aria-label="Dati in tempo reale">
-          <h4 class="text-xs sm:text-sm font-semibold text-slate-300 uppercase tracking-wide mb-3">Dati in Tempo Reale</h4>
-          <div class="grid grid-cols-2 gap-2 sm:gap-3" role="list">
+        <div class="bg-slate-900/50 rounded-xl p-2.5 sm:p-3 md:p-4 border border-slate-700" role="region" aria-label="Dati in tempo reale">
+          <h4 class="text-xs sm:text-sm font-semibold text-slate-300 uppercase tracking-wide mb-2 sm:mb-3">Dati in Tempo Reale</h4>
+          <div class="grid grid-cols-2 gap-1.5 sm:gap-2 md:gap-3" role="list">
             <div class="text-center" role="listitem">
-              <p class="text-slate-400 text-xs uppercase tracking-wide mb-1">Altezza Corrente</p>
-              <p class="text-lg sm:text-xl font-bold text-blue-400" aria-live="polite">{($appState.realtimeData?.current_height ?? 0)} cm</p>
+              <p class="text-slate-400 text-[10px] sm:text-xs uppercase tracking-wide mb-0.5 sm:mb-1">Altezza Corrente</p>
+              <p class="text-base sm:text-lg md:text-xl font-bold text-blue-400" aria-live="polite">{($appState.realtimeData?.current_height ?? 0)} cm</p>
             </div>
             <div class="text-center" role="listitem">
-              <p class="text-slate-400 text-xs uppercase tracking-wide mb-1">Altezza Max</p>
-              <p class="text-lg sm:text-xl font-bold text-green-400" aria-live="polite">{($appState.realtimeData?.max_height ?? 0)} cm</p>
+              <p class="text-slate-400 text-[10px] sm:text-xs uppercase tracking-wide mb-0.5 sm:mb-1">Altezza Max</p>
+              <p class="text-base sm:text-lg md:text-xl font-bold text-green-400" aria-live="polite">{($appState.realtimeData?.max_height ?? 0)} cm</p>
             </div>
             <div class="text-center" role="listitem">
-              <p class="text-slate-400 text-xs uppercase tracking-wide mb-1">Velocità Decollo</p>
-              <p class="text-lg sm:text-xl font-bold text-purple-400" aria-live="polite">{($appState.realtimeData?.takeoff_velocity ?? 0)} cm/s</p>
+              <p class="text-slate-400 text-[10px] sm:text-xs uppercase tracking-wide mb-0.5 sm:mb-1">Velocità Decollo</p>
+              <p class="text-base sm:text-lg md:text-xl font-bold text-purple-400" aria-live="polite">{($appState.realtimeData?.takeoff_velocity ?? 0)} cm/s</p>
             </div>
             <div class="text-center" role="listitem">
-              <p class="text-slate-400 text-xs uppercase tracking-wide mb-1">Potenza Est.</p>
-              <p class="text-lg sm:text-xl font-bold text-yellow-400" aria-live="polite">{($appState.realtimeData?.estimated_power ?? 0)} W</p>
+              <p class="text-slate-400 text-[10px] sm:text-xs uppercase tracking-wide mb-0.5 sm:mb-1">Potenza Est.</p>
+              <p class="text-base sm:text-lg md:text-xl font-bold text-yellow-400" aria-live="polite">{($appState.realtimeData?.estimated_power ?? 0)} W</p>
             </div>
           </div>
         </div>

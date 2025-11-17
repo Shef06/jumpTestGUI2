@@ -52,9 +52,15 @@ export default defineConfig({
       usePolling: true,
       interval: 200
     },
+    
     proxy: {
-      '/api': {
-        target: 'http://localhost:5000',
+      "/api/players": {
+        target: "http://94.177.160.183",
+        changeOrigin: true,
+        rewrite: (p) => p
+      },
+      "/api": {
+        target: "http://localhost:5000",
         changeOrigin: true
       }
     }
