@@ -54,11 +54,11 @@ export default defineConfig({
     },
     
     proxy: {
-      "/api/players": {
-        target: "http://94.177.160.183",
-        changeOrigin: true,
-        rewrite: (p) => p
-      },
+      // "/api/players": {
+      //   target: "http://94.177.160.183",
+      //   changeOrigin: true,
+      //   rewrite: (p) => p
+      // },
       "/api": {
         target: "http://localhost:5000",
         changeOrigin: true

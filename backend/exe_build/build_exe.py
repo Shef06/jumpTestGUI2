@@ -22,8 +22,6 @@ args = [
     '--console',  # Mostra la console (cambia in --windowed per nasconderla)
     f'--add-data={os.path.join(backend_dir, "contour.py")}{separator}.',  # Includi i moduli necessari
     f'--add-data={os.path.join(backend_dir, "jump_analyzer.py")}{separator}.',
-    f'--add-data={os.path.join(backend_dir, "API_Call.py")}{separator}.',
-    f'--add-data={os.path.join(backend_dir, "Kinai_API.py")}{separator}.',
     '--hidden-import=flask',
     '--hidden-import=flask_cors',
     '--hidden-import=cv2',
