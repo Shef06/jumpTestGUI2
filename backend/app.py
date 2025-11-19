@@ -1167,9 +1167,6 @@ def save_results():
             'estimated_power': round(calculated_estimated_power, 1),
         })
         
-        save_dir = os.path.expanduser('~\\AppData\\Roaming\\Kin.ai\\last_jump')
-        os.makedirs(save_dir, exist_ok=True)
-        
         save_data = {
             'timestamp': datetime.now().isoformat(),
             'results': enhanced_results,  # Usa enhanced_results invece di final_results
@@ -1183,15 +1180,70 @@ def save_results():
             }
         }
         
+        # Salvataggio nella directory last_jump (comportamento originale)
+        save_dir = os.path.expanduser('~\\AppData\\Roaming\\Kin.ai\\last_jump')
+        os.makedirs(save_dir, exist_ok=True)
+        
         file_path = os.path.join(save_dir, 'results.json')
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(save_data, f, indent=2, ensure_ascii=False)
         
-        return jsonify({
+        # Salvataggio aggiuntivo in test_results se test_id è fornito
+        test_id = None
+        if request.json:
+            test_id = request.json.get('test_id')
+        
+        test_results_path = None
+        if test_id:
+            test_dir = os.path.expanduser(f'~\\AppData\\Roaming\\Kin.ai\\test_results\\{test_id}')
+            os.makedirs(test_dir, exist_ok=True)
+            
+            test_results_path = os.path.join(test_dir, 'results.json')
+            
+            # Leggi il file esistente se presente
+            existing_data = {}
+            if os.path.exists(test_results_path):
+                try:
+                    with open(test_results_path, 'r', encoding='utf-8') as f:
+                        existing_data = json.load(f)
+                except Exception as e:
+                    print(f"Errore lettura file esistente: {e}")
+                    existing_data = {}
+            
+            # Trova il prossimo numero di salto
+            jump_keys = [key for key in existing_data.keys() if key.startswith('jump_')]
+            if jump_keys:
+                # Estrai i numeri e trova il massimo
+                jump_numbers = []
+                for key in jump_keys:
+                    try:
+                        num = int(key.replace('jump_', ''))
+                        jump_numbers.append(num)
+                    except ValueError:
+                        pass
+                next_jump_num = max(jump_numbers) + 1 if jump_numbers else 1
+            else:
+                next_jump_num = 1
+            
+            # Aggiungi il nuovo salto
+            jump_key = f'jump_{next_jump_num}'
+            existing_data[jump_key] = save_data
+            
+            # Salva il file aggiornato
+            with open(test_results_path, 'w', encoding='utf-8') as f:
+                json.dump(existing_data, f, indent=2, ensure_ascii=False)
+        
+        response = {
             'success': True, 
             'message': 'Risultati salvati con successo',
             'file_path': file_path
-        })
+        }
+        
+        if test_results_path:
+            response['test_results_path'] = test_results_path
+            response['jump_key'] = jump_key if test_id else None
+        
+        return jsonify(response)
         
     except Exception as e:
         return jsonify({'success': False, 'error': f'Errore salvataggio: {str(e)}'})
