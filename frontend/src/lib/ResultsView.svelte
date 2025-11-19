@@ -1000,9 +1000,10 @@
     const width = customWidth || targetCanvas.width;
     const height = customHeight || targetCanvas.height;
     
-    // Imposta le dimensioni se sono state specificate
+    // Imposta le dimensioni
     if (customWidth) targetCanvas.width = customWidth;
     if (customHeight) targetCanvas.height = customHeight;
+    
     const padding = 52;
     const chartWidth = width - 2 * padding;
     const chartHeight = height - 2 * padding;
@@ -1014,131 +1015,146 @@
     
     if (trajectoryData.length === 0 || velocityData.length === 0) return;
     
-    // Calcola i range per il tempo (asse X comune)
+    // --- 1. Calcolo Range Temporale (Asse X) ---
     const allTimes = [...trajectoryData.map(d => d.t), ...velocityData.map(d => d.t)];
     const maxT = Math.max(...allTimes);
     const minT = Math.min(...allTimes);
     const deltaT = maxT === minT ? 1 : (maxT - minT);
     
-    // Calcola i range per la traiettoria (asse Y sinistro) - usa sempre point.y (altezza)
-    // IMPORTANTE: trajectoryData deve contenere oggetti con {t, y} dove y è l'altezza in cm
-    const maxY = Math.max(...trajectoryData.map(d => d.y));
-    const minY = Math.min(...trajectoryData.map(d => d.y));
-    const deltaY = maxY === minY ? 1 : (maxY - minY);
+    // --- 2. Calcolo Range Iniziali (Asse Y) ---
     
-    // Calcola i range per la velocità (asse Y destro) - usa sempre point.v (velocità)
-    // IMPORTANTE: velocityData deve contenere oggetti con {t, v} dove v è la velocità in cm/s
-    const maxV = Math.max(...velocityData.map(d => d.v));
-    const minV = Math.min(...velocityData.map(d => d.v));
-    const deltaV = maxV === minV ? (Math.abs(maxV) || 1) : (maxV - minV);
+    // Altezza (Trajectory)
+    const rawMaxY = Math.max(...trajectoryData.map(d => d.y));
+    const rawMinY = Math.min(...trajectoryData.map(d => d.y));
     
-    // Calcola il range globale combinato per garantire che tutti i punti siano visibili
-    // max_y = max(trajectory.y, velocity.v), min_y = min(trajectory.y, velocity.v)
-    const globalMinY = Math.min(minY, minV);
-    const globalMaxY = Math.max(maxY, maxV);
-    const globalDeltaY = globalMaxY === globalMinY ? 1 : (globalMaxY - globalMinY);
+    // Velocità (Velocity)
+    const rawMaxV = Math.max(...velocityData.map(d => d.v));
+    const rawMinV = Math.min(...velocityData.map(d => d.v));
     
-    // Funzioni di normalizzazione per convertire i valori nel range globale
-    // Traiettoria: normalizza point.y (altezza) usando il range globale
-    // GARANTISCE che usa sempre point.y (altezza), NON point.v (velocità)
+    // --- 3. LOGICA ALLINEAMENTO ZERI (Sync Zero Points) ---
+    
+    let finalMinY = rawMinY;
+    let finalMaxY = rawMaxY;
+    let finalMinV = rawMinV;
+    let finalMaxV = rawMaxV;
+    
+    // Calcoliamo i range attuali
+    const rangeY = rawMaxY - rawMinY || 1;
+    const rangeV = rawMaxV - rawMinV || 1;
+    
+    // Calcoliamo la "percentuale di negativo" necessaria per ciascun grafico
+    // Esempio: Se v va da -100 a 300, il rapporto è |-100| / 400 = 0.25 (25% di spazio sotto lo zero)
+    // Usiamo Math.abs per sicurezza sui minimi
+    const ratioBelowY = (rawMinY < 0 || rawMaxY < 0) ? Math.abs(rawMinY) / rangeY : 0;
+    const ratioBelowV = (rawMinV < 0 || rawMaxV < 0) ? Math.abs(rawMinV) / rangeV : 0;
+    
+    // Confrontiamo chi ha bisogno di più spazio sotto lo zero
+    if (ratioBelowV > ratioBelowY) {
+        // La velocità domina (ha più negativo). 
+        // Dobbiamo abbassare fittiziamente il minimo dell'altezza per alzare il suo zero.
+        // Formula: NewMin = -(RatioDominante * MaxAttuale) / (1 - RatioDominante)
+        // Semplificazione algebrica per mantenere la proporzione:
+        finalMinY = - (ratioBelowV * rawMaxY) / (1 - ratioBelowV);
+    } else if (ratioBelowY > ratioBelowV) {
+        // L'altezza domina (caso raro nel salto, ma possibile).
+        // Adattiamo la velocità.
+        finalMinV = - (ratioBelowY * rawMaxV) / (1 - ratioBelowY);
+    }
+    
+    // Calcolo Delta Finali Sincronizzati
+    const deltaY = finalMaxY - finalMinY;
+    const deltaV = finalMaxV - finalMinV;
+    
+    // --- 4. Funzioni di Normalizzazione Sincronizzate ---
+    
     const normalizeTrajectory = (heightValue) => {
-      // Verifica che stiamo usando l'altezza, non la velocità
-      if (typeof heightValue !== 'number' || !isFinite(heightValue)) return 0;
-      return (heightValue - globalMinY) / globalDeltaY;
+        if (typeof heightValue !== 'number' || !isFinite(heightValue)) return 0;
+        return (heightValue - finalMinY) / deltaY;
     };
-    // Velocità: normalizza point.v (velocità) usando il range globale
-    // GARANTISCE che usa sempre point.v (velocità), NON point.y (altezza)
+
     const normalizeVelocity = (velocityValue) => {
-      // Verifica che stiamo usando la velocità, non l'altezza
-      if (typeof velocityValue !== 'number' || !isFinite(velocityValue)) return 0;
-      return (velocityValue - globalMinY) / globalDeltaY;
+        if (typeof velocityValue !== 'number' || !isFinite(velocityValue)) return 0;
+        return (velocityValue - finalMinV) / deltaV;
     };
     
-    // Usa i tempi delle fasi dal backend
     const currentPhaseTimes = phaseTimes;
     
-    // Disegna la griglia per la traiettoria (asse Y sinistro)
+    // --- 5. Disegno Griglie ---
+    
+    // Griglia Sinistra (Altezza) - Usa finalMinY e deltaY
     drawGrid(ctx, {
-      padding,
-      width,
-      height,
-      chartWidth,
-      chartHeight,
-      minT,
-      deltaT,
-      minY,
-      deltaY,
-      style: TRAJECTORY_STYLE,
-      xFormatter: (value) => value.toFixed(2),
-      yFormatter: (value) => value.toFixed(1)
+        padding,
+        width,
+        height,
+        chartWidth,
+        chartHeight,
+        minT,
+        deltaT,
+        minY: finalMinY, // IMPORTANTE: Passare i valori sincronizzati
+        deltaY: deltaY,
+        style: TRAJECTORY_STYLE,
+        xFormatter: (value) => value.toFixed(2),
+        yFormatter: (value) => value.toFixed(1)
     });
     
-    // Disegna la griglia per la velocità (asse Y destro)
+    // Etichette Destra (Velocità) - Usa finalMinV e deltaV
     ctx.strokeStyle = VELOCITY_STYLE.grid;
     ctx.lineWidth = 1;
     ctx.fillStyle = VELOCITY_STYLE.label;
     ctx.font = '11px sans-serif';
     ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
     
     for (let i = 0; i <= GRID_STEPS; i++) {
-      const ratio = i / GRID_STEPS;
-      const y = padding + (chartHeight * ratio);
-      const value = minV + (deltaV * (GRID_STEPS - i) / GRID_STEPS);
-      
-      ctx.beginPath();
-      ctx.moveTo(padding, y);
-      ctx.lineTo(width - padding, y);
-      ctx.stroke();
-      
-      const label = value.toFixed(1);
-      ctx.textAlign = 'left';
-      ctx.fillText(label, width - padding + 12, y);
+        const ratio = i / GRID_STEPS;
+        const y = padding + (chartHeight * ratio);
+        // Calcola il valore basandosi sul range sincronizzato
+        const value = finalMinV + (deltaV * (GRID_STEPS - i) / GRID_STEPS);
+        
+        // Disegna solo il testo, le righe orizzontali sono già fatte da drawGrid
+        // e coincidono perfettamente grazie all'allineamento degli zeri
+        const label = value.toFixed(1);
+        ctx.fillText(label, width - padding + 12, y);
     }
     
-    // Linea zero per la traiettoria
-    if (globalMinY <= 0 && globalMaxY >= 0) {
-      const zeroY = height - padding - normalizeTrajectory(0) * chartHeight;
-      ctx.strokeStyle = TRAJECTORY_STYLE.zero;
-      ctx.setLineDash([6, 6]);
-      ctx.beginPath();
-      ctx.moveTo(padding, zeroY);
-      ctx.lineTo(width - padding, zeroY);
-      ctx.stroke();
-      ctx.setLineDash([]);
+    // --- 6. Linea Zero Comune ---
+    // Dato che abbiamo sincronizzato, basta calcolarne una.
+    // Se lo zero rientra nel grafico, lo disegniamo.
+    if ((finalMinY <= 0 && finalMaxY >= 0) || (finalMinV <= 0 && finalMaxV >= 0)) {
+        // Calcola la Y dello zero (sarà identica per Trajectory e Velocity)
+        const zeroY = height - padding - normalizeTrajectory(0) * chartHeight;
+        
+        // Controllo di sicurezza per non disegnare fuori dal chart area
+        if (zeroY >= padding && zeroY <= height - padding) {
+            ctx.strokeStyle = '#AAAAAA'; // Colore neutro per lo zero comune
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([6, 4]);
+            ctx.beginPath();
+            ctx.moveTo(padding, zeroY);
+            ctx.lineTo(width - padding, zeroY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
     }
     
-    // Linea zero per la velocità (stessa posizione della traiettoria se 0 è nel range)
-    if (globalMinY <= 0 && globalMaxY >= 0) {
-      const zeroY = height - padding - normalizeVelocity(0) * chartHeight;
-      ctx.strokeStyle = VELOCITY_STYLE.zero;
-      ctx.setLineDash([6, 6]);
-      ctx.beginPath();
-      ctx.moveTo(padding, zeroY);
-      ctx.lineTo(width - padding, zeroY);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-    
-    // Disegna le aree colorate per le fasi (sotto le linee)
+    // --- 7. Aree Fasi ---
     if (phaseTimes) {
-      // Area fase eccentrica
-      if (currentPhaseTimes.eccentricStart !== null && currentPhaseTimes.eccentricEnd !== null) {
-        const x1 = padding + ((currentPhaseTimes.eccentricStart - minT) / deltaT) * chartWidth;
-        const x2 = padding + ((currentPhaseTimes.eccentricEnd - minT) / deltaT) * chartWidth;
-        ctx.fillStyle = 'rgba(255, 165, 0, 0.15)';
-        ctx.fillRect(x1, padding, x2 - x1, chartHeight);
-      }
-      
-      // Area fase concentrica
-      if (currentPhaseTimes.concentricStart !== null && currentPhaseTimes.concentricEnd !== null) {
-        const x1 = padding + ((currentPhaseTimes.concentricStart - minT) / deltaT) * chartWidth;
-        const x2 = padding + ((currentPhaseTimes.concentricEnd - minT) / deltaT) * chartWidth;
-        ctx.fillStyle = 'rgba(0, 255, 0, 0.15)';
-        ctx.fillRect(x1, padding, x2 - x1, chartHeight);
-      }
+        const drawPhaseRect = (start, end, color) => {
+            if (start !== null && end !== null) {
+                const x1 = padding + ((start - minT) / deltaT) * chartWidth;
+                const x2 = padding + ((end - minT) / deltaT) * chartWidth;
+                ctx.fillStyle = color;
+                ctx.fillRect(x1, padding, x2 - x1, chartHeight);
+            }
+        };
+        
+        drawPhaseRect(currentPhaseTimes.eccentricStart, currentPhaseTimes.eccentricEnd, 'rgba(255, 165, 0, 0.15)');
+        drawPhaseRect(currentPhaseTimes.concentricStart, currentPhaseTimes.concentricEnd, 'rgba(0, 255, 0, 0.15)');
     }
     
-    // Disegna la traiettoria - USA SEMPRE point.y (altezza), NON point.v (velocità)
+    // --- 8. Disegno Curve ---
+    
+    // Traiettoria (Altezza)
     ctx.lineWidth = 3;
     ctx.strokeStyle = TRAJECTORY_STYLE.line;
     ctx.lineJoin = 'round';
@@ -1148,22 +1164,16 @@
     
     ctx.beginPath();
     trajectoryData.forEach((point, i) => {
-      const x = padding + ((point.t - minT) / deltaT) * chartWidth;
-      // CRITICO: usa SEMPRE point.y (altezza in cm), MAI point.v (velocità in cm/s)
-      // Se point.y non esiste o è undefined, usa 0 come fallback
-      const heightValue = (point && typeof point.y === 'number') ? point.y : 0;
-      // NON usare mai point.v qui - point.v è solo per velocityData
-      const y = height - padding - normalizeTrajectory(heightValue) * chartHeight;
-      if (i === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
+        const x = padding + ((point.t - minT) / deltaT) * chartWidth;
+        const val = (point && typeof point.y === 'number') ? point.y : 0;
+        const y = height - padding - normalizeTrajectory(val) * chartHeight;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
     });
     ctx.stroke();
     ctx.shadowBlur = 0;
     
-    // Disegna la velocità (usando il range globale per garantire visibilità)
+    // Velocità
     ctx.lineWidth = 3;
     ctx.strokeStyle = VELOCITY_STYLE.line;
     ctx.shadowColor = VELOCITY_STYLE.lineShadow;
@@ -1171,121 +1181,82 @@
     
     ctx.beginPath();
     velocityData.forEach((point, i) => {
-      const x = padding + ((point.t - minT) / deltaT) * chartWidth;
-      const y = height - padding - normalizeVelocity(point.v) * chartHeight;
-      if (i === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
+        const x = padding + ((point.t - minT) / deltaT) * chartWidth;
+        const y = height - padding - normalizeVelocity(point.v) * chartHeight;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
     });
     ctx.stroke();
     ctx.shadowBlur = 0;
     
-    // Disegna i punti di campionamento per la traiettoria
+    // --- 9. Punti di Campionamento ---
+    
+    // Punti Traiettoria
     ctx.fillStyle = TRAJECTORY_STYLE.line;
     trajectoryData.forEach((point, i) => {
-      if (i % Math.max(1, Math.floor(trajectoryData.length / 25)) === 0 || i === trajectoryData.length - 1) {
-        const x = padding + ((point.t - minT) / deltaT) * chartWidth;
-        // CRITICO: usa SEMPRE point.y (altezza), MAI point.v (velocità)
-        const heightValue = (point && typeof point.y === 'number') ? point.y : 0;
-        const y = height - padding - normalizeTrajectory(heightValue) * chartHeight;
-        ctx.beginPath();
-        ctx.arc(x, y, 3, 0, Math.PI * 2);
-        ctx.fill();
-      }
+        if (i % Math.max(1, Math.floor(trajectoryData.length / 25)) === 0 || i === trajectoryData.length - 1) {
+            const x = padding + ((point.t - minT) / deltaT) * chartWidth;
+            const val = (point && typeof point.y === 'number') ? point.y : 0;
+            const y = height - padding - normalizeTrajectory(val) * chartHeight;
+            ctx.beginPath();
+            ctx.arc(x, y, 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
     });
     
-    // Disegna i punti di campionamento per la velocità
+    // Punti Velocità
     ctx.fillStyle = VELOCITY_STYLE.line;
     velocityData.forEach((point, i) => {
-      if (i % Math.max(1, Math.floor(velocityData.length / 25)) === 0 || i === velocityData.length - 1) {
-        const x = padding + ((point.t - minT) / deltaT) * chartWidth;
-        const y = height - padding - normalizeVelocity(point.v) * chartHeight;
-        ctx.beginPath();
-        ctx.arc(x, y, 3, 0, Math.PI * 2);
-        ctx.fill();
-      }
+        if (i % Math.max(1, Math.floor(velocityData.length / 25)) === 0 || i === velocityData.length - 1) {
+            const x = padding + ((point.t - minT) / deltaT) * chartWidth;
+            const y = height - padding - normalizeVelocity(point.v) * chartHeight;
+            ctx.beginPath();
+            ctx.arc(x, y, 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
     });
     
-    // Disegna le linee di riferimento per le fasi
+    // --- 10. Linee Verticali Fasi (Marker) ---
     if (currentPhaseTimes) {
-      const markerColors = {
-        contact: 'rgba(255, 255, 0, 0.7)',      // Giallo per contatto
-        eccentric: 'rgba(255, 165, 0, 0.7)',   // Arancione per eccentrica
-        concentric: 'rgba(0, 255, 0, 0.7)',     // Verde per concentrica
-        takeoff: 'rgba(255, 0, 0, 0.7)'        // Rosso per decollo
-      };
-      
-      // Linea inizio contatto / inizio eccentrica
-      if (currentPhaseTimes.contactStart !== null) {
-        const x = padding + ((currentPhaseTimes.contactStart - minT) / deltaT) * chartWidth;
-        ctx.strokeStyle = markerColors.contact;
-        ctx.lineWidth = 2;
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath();
-        ctx.moveTo(x, padding);
-        ctx.lineTo(x, height - padding);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        const drawPhaseLine = (time, label, color, yOffsetLabel) => {
+            if (time !== null) {
+                const x = padding + ((time - minT) / deltaT) * chartWidth;
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
+                ctx.setLineDash([4, 4]);
+                ctx.beginPath();
+                ctx.moveTo(x, padding);
+                ctx.lineTo(x, height - padding);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                ctx.fillStyle = color;
+                ctx.font = '10px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                ctx.fillText(label, x, padding + yOffsetLabel);
+            }
+        };
         
-        // Etichetta
-        ctx.fillStyle = markerColors.contact;
-        ctx.font = '10px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
-        ctx.fillText('Inizio Contatto', x, padding + 2);
-      }
-      
-      // Linea fine eccentrica / inizio concentrica
-      if (currentPhaseTimes.eccentricEnd !== null) {
-        const x = padding + ((currentPhaseTimes.eccentricEnd - minT) / deltaT) * chartWidth;
-        ctx.strokeStyle = markerColors.eccentric;
-        ctx.lineWidth = 2;
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath();
-        ctx.moveTo(x, padding);
-        ctx.lineTo(x, height - padding);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        const colors = {
+            contact: 'rgba(255, 255, 0, 0.7)',
+            eccentric: 'rgba(255, 165, 0, 0.7)',
+            takeoff: 'rgba(255, 0, 0, 0.7)'
+        };
         
-        // Etichetta
-        ctx.fillStyle = markerColors.eccentric;
-        ctx.font = '10px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
-        ctx.fillText('Fine Eccentrica', x, padding + 14);
-      }
-      
-      // Linea decollo / fine concentrica
-      if (currentPhaseTimes.takeoff !== null) {
-        const x = padding + ((currentPhaseTimes.takeoff - minT) / deltaT) * chartWidth;
-        ctx.strokeStyle = markerColors.takeoff;
-        ctx.lineWidth = 2;
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath();
-        ctx.moveTo(x, padding);
-        ctx.lineTo(x, height - padding);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        
-        // Etichetta
-        ctx.fillStyle = markerColors.takeoff;
-        ctx.font = '10px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
-        ctx.fillText('Decollo', x, padding + 26);
-      }
+        drawPhaseLine(currentPhaseTimes.contactStart, 'Inizio Contatto', colors.contact, 2);
+        drawPhaseLine(currentPhaseTimes.eccentricEnd, 'Fine Eccentrica', colors.eccentric, 14);
+        drawPhaseLine(currentPhaseTimes.takeoff, 'Decollo', colors.takeoff, 26);
     }
     
-    // Etichette degli assi
+    // --- 11. Etichette Assi ---
     ctx.fillStyle = TRAJECTORY_STYLE.label;
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
     ctx.fillText('Tempo (s)', width / 2, height - 18);
     
-    // Etichetta asse Y sinistro (traiettoria)
+    // Label Asse Y Sinistro
     ctx.save();
     ctx.translate(20, height / 2);
     ctx.rotate(-Math.PI / 2);
@@ -1294,7 +1265,7 @@
     ctx.fillText('Altezza (cm)', 0, 0);
     ctx.restore();
     
-    // Etichetta asse Y destro (velocità)
+    // Label Asse Y Destro
     ctx.save();
     ctx.translate(width - 20, height / 2);
     ctx.rotate(-Math.PI / 2);
@@ -1302,7 +1273,7 @@
     ctx.fillStyle = VELOCITY_STYLE.label;
     ctx.fillText('Velocità (cm/s)', 0, 0);
     ctx.restore();
-  }
+}
 
   function clearCanvas(canvas, background) {
     const ctx = canvas.getContext('2d');
