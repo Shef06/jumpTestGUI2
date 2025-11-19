@@ -1020,79 +1020,39 @@
     const minT = Math.min(...allTimes);
     const deltaT = maxT === minT ? 1 : (maxT - minT);
     
-    // Calcola i range per la traiettoria (asse Y sinistro)
+    // Calcola i range per la traiettoria (asse Y sinistro) - usa sempre point.y (altezza)
+    // IMPORTANTE: trajectoryData deve contenere oggetti con {t, y} dove y è l'altezza in cm
     const maxY = Math.max(...trajectoryData.map(d => d.y));
     const minY = Math.min(...trajectoryData.map(d => d.y));
     const deltaY = maxY === minY ? 1 : (maxY - minY);
     
-    // Calcola i range per la velocità (asse Y destro)
+    // Calcola i range per la velocità (asse Y destro) - usa sempre point.v (velocità)
+    // IMPORTANTE: velocityData deve contenere oggetti con {t, v} dove v è la velocità in cm/s
     const maxV = Math.max(...velocityData.map(d => d.v));
     const minV = Math.min(...velocityData.map(d => d.v));
     const deltaV = maxV === minV ? (Math.abs(maxV) || 1) : (maxV - minV);
     
-    // Allinea graficamente il primo punto: trova il primo punto comune nel tempo
-    const firstTrajectoryTime = trajectoryData[0]?.t || 0;
-    const firstVelocityTime = velocityData[0]?.t || 0;
-    const firstCommonTime = Math.min(firstTrajectoryTime, firstVelocityTime);
+    // Calcola il range globale combinato per garantire che tutti i punti siano visibili
+    // max_y = max(trajectory.y, velocity.v), min_y = min(trajectory.y, velocity.v)
+    const globalMinY = Math.min(minY, minV);
+    const globalMaxY = Math.max(maxY, maxV);
+    const globalDeltaY = globalMaxY === globalMinY ? 1 : (globalMaxY - globalMinY);
     
-    // Trova i valori corrispondenti al primo tempo comune
-    const firstTrajectoryPoint = trajectoryData.find(d => Math.abs(d.t - firstCommonTime) < 0.01) || trajectoryData[0];
-    const firstVelocityPoint = velocityData.find(d => Math.abs(d.t - firstCommonTime) < 0.01) || velocityData[0];
-    
-    // Calcola la Y del primo punto della traiettoria (punto di riferimento fisso)
-    const trajectoryFirstY = height - padding - ((firstTrajectoryPoint.y - minY) / deltaY) * chartHeight;
-    
-    // Calcola la Y base del primo punto della velocità (senza offset)
-    const firstVelocityBaseY = height - padding - ((firstVelocityPoint.v - minV) / deltaV) * chartHeight;
-    
-    // Calcola l'offset base per allineare i primi punti
-    const baseVelocityOffset = trajectoryFirstY - firstVelocityBaseY;
-    
-    // Calcola tutte le Y della velocità dopo l'offset base (per verificare se escono)
-    const velocityYPositions = velocityData.map(point => {
-      const baseY = height - padding - ((point.v - minV) / deltaV) * chartHeight;
-      return baseY + baseVelocityOffset;
-    });
-    
-    const minVelocityY = Math.min(...velocityYPositions);
-    const maxVelocityY = Math.max(...velocityYPositions);
-    const velocityRange = maxVelocityY - minVelocityY;
-    const availableHeight = height - 2 * padding;
-    
-    // Calcola scale e offset finali per mantenere tutto visibile e allineato
-    // Il primo punto deve sempre rimanere allineato, quindi scaliamo rispetto al primo punto
-    let velocityScale = 1;
-    let velocityOffset = baseVelocityOffset;
-    
-    // Verifica se alcuni punti escono dal canvas o se il range è troppo grande
-    if (minVelocityY < padding || maxVelocityY > height - padding || velocityRange > availableHeight) {
-      // Calcola il range necessario per mostrare tutti i punti
-      // Dopo lo scale, tutti i punti devono essere tra padding e height - padding
-      // Il primo punto rimane fisso a trajectoryFirstY
-      
-      // Calcola le distanze dal primo punto (in coordinate canvas)
-      const distancesFromFirst = velocityYPositions.map(y => y - trajectoryFirstY);
-      const minDistance = Math.min(...distancesFromFirst);
-      const maxDistance = Math.max(...distancesFromFirst);
-      
-      // Calcola quanto spazio serve sopra e sotto il primo punto
-      const spaceNeededAbove = Math.max(0, maxDistance);
-      const spaceNeededBelow = Math.abs(Math.min(0, minDistance));
-      const totalSpaceNeeded = spaceNeededAbove + spaceNeededBelow;
-      
-      // Calcola lo spazio disponibile sopra e sotto il primo punto
-      const spaceAvailableAbove = height - padding - trajectoryFirstY;
-      const spaceAvailableBelow = trajectoryFirstY - padding;
-      const totalSpaceAvailable = spaceAvailableAbove + spaceAvailableBelow;
-      
-      // Se serve più spazio di quello disponibile, scala
-      if (totalSpaceNeeded > totalSpaceAvailable) {
-        velocityScale = totalSpaceAvailable / totalSpaceNeeded;
-      }
-      
-      // L'offset rimane lo stesso perché scaliamo rispetto al primo punto
-      velocityOffset = baseVelocityOffset;
-    }
+    // Funzioni di normalizzazione per convertire i valori nel range globale
+    // Traiettoria: normalizza point.y (altezza) usando il range globale
+    // GARANTISCE che usa sempre point.y (altezza), NON point.v (velocità)
+    const normalizeTrajectory = (heightValue) => {
+      // Verifica che stiamo usando l'altezza, non la velocità
+      if (typeof heightValue !== 'number' || !isFinite(heightValue)) return 0;
+      return (heightValue - globalMinY) / globalDeltaY;
+    };
+    // Velocità: normalizza point.v (velocità) usando il range globale
+    // GARANTISCE che usa sempre point.v (velocità), NON point.y (altezza)
+    const normalizeVelocity = (velocityValue) => {
+      // Verifica che stiamo usando la velocità, non l'altezza
+      if (typeof velocityValue !== 'number' || !isFinite(velocityValue)) return 0;
+      return (velocityValue - globalMinY) / globalDeltaY;
+    };
     
     // Usa i tempi delle fasi dal backend
     const currentPhaseTimes = phaseTimes;
@@ -1136,8 +1096,8 @@
     }
     
     // Linea zero per la traiettoria
-    if (minY <= 0 && maxY >= 0) {
-      const zeroY = height - padding - ((0 - minY) / deltaY) * chartHeight;
+    if (globalMinY <= 0 && globalMaxY >= 0) {
+      const zeroY = height - padding - normalizeTrajectory(0) * chartHeight;
       ctx.strokeStyle = TRAJECTORY_STYLE.zero;
       ctx.setLineDash([6, 6]);
       ctx.beginPath();
@@ -1147,12 +1107,9 @@
       ctx.setLineDash([]);
     }
     
-    // Linea zero per la velocità
-    if (minV <= 0 && maxV >= 0) {
-      const zeroBaseY = height - padding - ((0 - minV) / deltaV) * chartHeight;
-      // Scala rispetto al primo punto per mantenere l'allineamento
-      const zeroScaledY = firstVelocityBaseY + (zeroBaseY - firstVelocityBaseY) * velocityScale;
-      const zeroY = zeroScaledY + velocityOffset;
+    // Linea zero per la velocità (stessa posizione della traiettoria se 0 è nel range)
+    if (globalMinY <= 0 && globalMaxY >= 0) {
+      const zeroY = height - padding - normalizeVelocity(0) * chartHeight;
       ctx.strokeStyle = VELOCITY_STYLE.zero;
       ctx.setLineDash([6, 6]);
       ctx.beginPath();
@@ -1181,7 +1138,7 @@
       }
     }
     
-    // Disegna la traiettoria
+    // Disegna la traiettoria - USA SEMPRE point.y (altezza), NON point.v (velocità)
     ctx.lineWidth = 3;
     ctx.strokeStyle = TRAJECTORY_STYLE.line;
     ctx.lineJoin = 'round';
@@ -1192,7 +1149,11 @@
     ctx.beginPath();
     trajectoryData.forEach((point, i) => {
       const x = padding + ((point.t - minT) / deltaT) * chartWidth;
-      const y = height - padding - ((point.y - minY) / deltaY) * chartHeight;
+      // CRITICO: usa SEMPRE point.y (altezza in cm), MAI point.v (velocità in cm/s)
+      // Se point.y non esiste o è undefined, usa 0 come fallback
+      const heightValue = (point && typeof point.y === 'number') ? point.y : 0;
+      // NON usare mai point.v qui - point.v è solo per velocityData
+      const y = height - padding - normalizeTrajectory(heightValue) * chartHeight;
       if (i === 0) {
         ctx.moveTo(x, y);
       } else {
@@ -1202,7 +1163,7 @@
     ctx.stroke();
     ctx.shadowBlur = 0;
     
-    // Disegna la velocità (con offset e scale per allineare il primo punto e mantenere tutto visibile)
+    // Disegna la velocità (usando il range globale per garantire visibilità)
     ctx.lineWidth = 3;
     ctx.strokeStyle = VELOCITY_STYLE.line;
     ctx.shadowColor = VELOCITY_STYLE.lineShadow;
@@ -1211,10 +1172,7 @@
     ctx.beginPath();
     velocityData.forEach((point, i) => {
       const x = padding + ((point.t - minT) / deltaT) * chartWidth;
-      const baseY = height - padding - ((point.v - minV) / deltaV) * chartHeight;
-      // Scala rispetto al primo punto per mantenere l'allineamento
-      const scaledY = firstVelocityBaseY + (baseY - firstVelocityBaseY) * velocityScale;
-      const y = scaledY + velocityOffset;
+      const y = height - padding - normalizeVelocity(point.v) * chartHeight;
       if (i === 0) {
         ctx.moveTo(x, y);
       } else {
@@ -1229,7 +1187,9 @@
     trajectoryData.forEach((point, i) => {
       if (i % Math.max(1, Math.floor(trajectoryData.length / 25)) === 0 || i === trajectoryData.length - 1) {
         const x = padding + ((point.t - minT) / deltaT) * chartWidth;
-        const y = height - padding - ((point.y - minY) / deltaY) * chartHeight;
+        // CRITICO: usa SEMPRE point.y (altezza), MAI point.v (velocità)
+        const heightValue = (point && typeof point.y === 'number') ? point.y : 0;
+        const y = height - padding - normalizeTrajectory(heightValue) * chartHeight;
         ctx.beginPath();
         ctx.arc(x, y, 3, 0, Math.PI * 2);
         ctx.fill();
@@ -1241,10 +1201,7 @@
     velocityData.forEach((point, i) => {
       if (i % Math.max(1, Math.floor(velocityData.length / 25)) === 0 || i === velocityData.length - 1) {
         const x = padding + ((point.t - minT) / deltaT) * chartWidth;
-        const baseY = height - padding - ((point.v - minV) / deltaV) * chartHeight;
-        // Scala rispetto al primo punto per mantenere l'allineamento
-        const scaledY = firstVelocityBaseY + (baseY - firstVelocityBaseY) * velocityScale;
-        const y = scaledY + velocityOffset;
+        const y = height - padding - normalizeVelocity(point.v) * chartHeight;
         ctx.beginPath();
         ctx.arc(x, y, 3, 0, Math.PI * 2);
         ctx.fill();
