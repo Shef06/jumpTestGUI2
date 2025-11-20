@@ -12,8 +12,8 @@
   let selectedFile = null;
   let isUploading = false;
   let fps = 30;
-  let personHeight = 174;
-  let bodyMass = 62;
+  let personHeight = 192;
+  let bodyMass = 97;
   let errorMessage = '';
   let isCalibrating = false;
   let isAnalyzing = false;
