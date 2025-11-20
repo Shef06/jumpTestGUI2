@@ -75,7 +75,7 @@ export const api = {
       //document.cookie = `session_id=${sessionId}; path=/`
       // SCONSIGLIATO PER I COOKIE DI SESSIONE
       document.cookie = `session_id=${sessionId}; path=/api/players`;
-      const response = await fetch(`http://94.177.160.183/api/players/${playerId}`, {
+      const response = await fetch(`http://localhost:5173/api/players/${playerId}`, {
         method: 'GET',
         credentials: 'include', // ⭐ manda automaticamente i cookie del dominio
         headers: {
