@@ -176,38 +176,140 @@
 
   function drawCombinedChart() {
     if (!canvasRef) return;
-    drawTrajectoryChart(); 
+    const tData = $appState.trajectoryData;
+    const vData = derivedVelocityData;
     
-    const ctx = canvasRef.getContext('2d');
+    if (tData.length === 0 || vData.length === 0) return;
+
+    const dpr = window.devicePixelRatio || 1;
     const rect = canvasRef.getBoundingClientRect();
-    const width = rect.width; 
+    canvasRef.width = rect.width * dpr;
+    canvasRef.height = rect.height * dpr;
+    const ctx = canvasRef.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    const width = rect.width;
     const height = rect.height;
     const padding = 40;
-    const chartHeight = height - 2 * padding;
     const chartWidth = width - 2 * padding;
-    
-    const vData = derivedVelocityData;
-    if(vData.length === 0) return;
+    const chartHeight = height - 2 * padding;
 
-    const maxV = Math.max(...vData.map(d => d.v));
-    const minV = Math.min(...vData.map(d => d.v));
-    const deltaV = maxV - minV || 1;
-    const minT = Math.min(...vData.map(d => d.t));
-    const maxT = Math.max(...vData.map(d => d.t));
-    const deltaT = maxT - minT || 1;
+    clearCanvas(ctx, width, height, TRAJECTORY_STYLE.background);
 
+    // --- NORMALIZZAZIONE & ALLINEAMENTO ZERI ---
+
+    // 1. Normalizza altezza (Spostamento relativo da 0)
+    // Così t=0 parte da y=0, come la velocità
+    const startH = tData[0]?.y || 0;
+    const shiftedTData = tData.map(d => ({...d, y: d.y - startH}));
+
+    // 2. Calcola i range estesi (incluso 0)
+    let maxT = Math.max(0, ...shiftedTData.map(d => d.y));
+    let minT = Math.min(0, ...shiftedTData.map(d => d.y));
+    let maxV = Math.max(0, ...vData.map(d => d.v));
+    let minV = Math.min(0, ...vData.map(d => d.v));
+
+    // 3. Calcola quanto spazio serve "sotto lo zero" per ciascun grafico
+    // ratio = |min| / (max - min)
+    const rangeT = maxT - minT || 1;
+    const rangeV = maxV - minV || 1;
+    const ratioBelowT = Math.abs(minT) / rangeT;
+    const ratioBelowV = Math.abs(minV) / rangeV;
+
+    // 4. Trova il rapporto dominante (chi ha più bisogno di spazio sotto lo zero)
+    const targetRatioBelow = Math.max(ratioBelowT, ratioBelowV);
+
+    // 5. Ricalcola i Minimi fittizi per allineare gli Zeri allo stesso livello Y
+    // Formula inversa: min = -(targetRatio * max) / (1 - targetRatio)
+    let alignMinT = minT;
+    let alignMaxT = maxT;
+    let alignMinV = minV;
+    let alignMaxV = maxV;
+
+    // Se la traiettoria ha meno negativo della velocità, estendi il suo minimo
+    if (ratioBelowT < targetRatioBelow) {
+        alignMinT = - (targetRatioBelow * maxT) / (1 - targetRatioBelow);
+    }
+    // Se la velocità ha meno negativo (raro), estendi il suo minimo
+    if (ratioBelowV < targetRatioBelow) {
+        alignMinV = - (targetRatioBelow * maxV) / (1 - targetRatioBelow);
+    }
+
+    const alignDeltaT = alignMaxT - alignMinT || 1;
+    const alignDeltaV = alignMaxV - alignMinV || 1;
+
+    // Tempo comune
+    const timeMax = Math.max(...tData.map(d => d.t), ...vData.map(d => d.t));
+    const timeMin = Math.min(...tData.map(d => d.t), ...vData.map(d => d.t));
+    const timeDelta = timeMax - timeMin || 1;
+
+    // --- DISEGNO ---
+
+    // 6. Disegna Griglia (Usando i valori allineati della Traiettoria come base)
+    // Nota: Lo zero della griglia ora corrisponderà perfettamente allo zero della velocità
+    drawGrid(ctx, { 
+        padding, width, height, chartWidth, chartHeight, 
+        minT: timeMin, deltaT: timeDelta, 
+        minY: alignMinT, deltaY: alignDeltaT, 
+        style: TRAJECTORY_STYLE, 
+        xFormatter: v => v.toFixed(2), 
+        yFormatter: v => v.toFixed(0) // Mostra spostamento in cm
+    });
+
+    // Linea Zero Comune (Disegnata una sola volta, valida per entrambi)
+    const zeroY = height - padding - ((0 - alignMinT) / alignDeltaT) * chartHeight;
+    if (zeroY >= padding && zeroY <= height - padding) {
+        ctx.strokeStyle = '#64748b'; // Grigio neutro
+        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(padding, zeroY); ctx.lineTo(width - padding, zeroY); ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    if (phaseTimes) drawPhasesBackground(ctx, phaseTimes, timeMin, timeDelta, padding, chartWidth, chartHeight);
+
+    // 7. Traiettoria (Verde) - Usando dati spostati e range allineato
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = TRAJECTORY_STYLE.line;
+    ctx.lineJoin = 'round';
+    ctx.shadowColor = TRAJECTORY_STYLE.lineShadow;
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    shiftedTData.forEach((point, i) => {
+        const x = padding + ((point.t - timeMin) / timeDelta) * chartWidth;
+        const y = height - padding - ((point.y - alignMinT) / alignDeltaT) * chartHeight;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // 8. Velocità (Viola) - Usando range allineato
     ctx.lineWidth = 3;
     ctx.strokeStyle = VELOCITY_STYLE.line;
     ctx.shadowColor = VELOCITY_STYLE.lineShadow;
     ctx.shadowBlur = 10;
     ctx.beginPath();
     vData.forEach((point, i) => {
-        const x = padding + ((point.t - minT) / deltaT) * chartWidth;
-        const y = height - padding - ((point.v - minV) / deltaV) * chartHeight;
+        const x = padding + ((point.t - timeMin) / timeDelta) * chartWidth;
+        const y = height - padding - ((point.v - alignMinV) / alignDeltaV) * chartHeight;
         if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     });
     ctx.stroke();
     ctx.shadowBlur = 0;
+    
+    // 9. Label Asse Destro (Velocità)
+    ctx.fillStyle = VELOCITY_STYLE.label;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i <= GRID_STEPS; i++) {
+      const ratio = i / GRID_STEPS;
+      const y = padding + (chartHeight * ratio);
+      // Calcola il valore corrispondente sulla scala velocità allineata
+      const val = alignMinV + (alignDeltaV * (GRID_STEPS - i) / GRID_STEPS);
+      ctx.fillText(val.toFixed(0), width - padding + 8, y);
+    }
+    
+    if (phaseTimes) drawPhaseMarkers(ctx, phaseTimes, timeMin, timeDelta, padding, chartWidth, height);
   }
 
   function drawGrid(ctx, { padding, width, height, chartWidth, chartHeight, minT, deltaT, minY, deltaY, style, xFormatter, yFormatter }) {
@@ -295,7 +397,7 @@
             </span>
             <span class="text-emerald-400 text-xs font-bold uppercase tracking-wider">Analisi Completata</span>
          </div>
-         <span class="text-[10px] text-slate-500 font-mono bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">ID: {results?.id || '8291-X'}</span>
+         <!-- <span class="text-[10px] text-slate-500 font-mono bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">ID: {results?.id || '8291-X'}</span> -->
     </div>
     
     <div class="flex border-b border-slate-800 bg-slate-900/50">
