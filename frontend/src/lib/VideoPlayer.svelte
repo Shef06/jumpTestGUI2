@@ -73,10 +73,16 @@
 
   <div class="flex-1 bg-black flex items-center justify-center relative overflow-hidden">
     {#if $appState.isCameraPreview && $appState.previewStream}
+      <!-- 1. Anteprima Fotocamera -->
       <video bind:this={videoEl} autoplay playsinline muted class="w-full h-full object-contain"></video>
-    {:else if analysisCompleted && $appState.localVideoUrl}
+    
+    {:else if $appState.localVideoUrl && !$appState.isAnalyzing && !$appState.isRecording}
+      <!-- 2. Riproduzione Video Normale (Se disponibile e non in analisi) -->
+      <!-- Questo blocco ora appare anche se analysisCompleted è false, a patto che non stiamo analizzando -->
       <video bind:this={videoEl} src={$appState.localVideoUrl} controls class="w-full h-full object-contain"></video>
+    
     {:else if videoSrc}
+      <!-- 3. Frame Processato (Durante analisi o navigazione risultati) -->
       <img src={videoSrc} alt="Video frame" class="w-full h-full object-contain" />
       {#if $appState.isRecording}
         <div class="absolute top-4 right-4 flex items-center gap-2 bg-red-600 px-3 py-1 rounded-full shadow-lg animate-pulse">
@@ -88,7 +94,9 @@
           <span class="text-white text-xs font-bold">ANALYZING...</span>
         </div>
       {/if}
+    
     {:else}
+      <!-- 4. Stato Vuoto -->
        <div class="text-center p-8 opacity-50">
           <svg class="w-16 h-16 mx-auto text-slate-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
           <p class="text-slate-400 text-sm">Nessun video caricato</p>

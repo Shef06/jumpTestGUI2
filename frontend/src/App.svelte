@@ -82,6 +82,7 @@
     try { $appState.previewStream?.getTracks()?.forEach(t => t.stop()); } catch (e) {}
     clearPreviewStream();
     
+    // Reset totale (chiusura app)
     appState.set({
       isAnalyzing: false,
       isRecording: false,
@@ -98,26 +99,28 @@
     try { window.close(); } catch (e) {}
   }
 
-  function handleReset() {
+  // Modificata per accettare keepVideo
+  function handleReset(keepVideo = false) {
     showResults = false;
     finalResults = null;
     currentStep = 1;
     consecutiveErrors = 0;
     pollRate = 150;
     
-    appState.set({
+    appState.update(s => ({
       isAnalyzing: false,
       isRecording: false,
       isCalibrating: false,
       isPaused: false,
       isCameraPreview: false,
-      inputMode: 'none',
+      // Se keepVideo è true, preserva inputMode (es. 'upload') e localVideoUrl
+      inputMode: keepVideo ? s.inputMode : 'none',
       videoFrame: null,
       realtimeData: {},
       trajectoryData: [],
       velocityData: [],
-      localVideoUrl: null
-    });
+      localVideoUrl: keepVideo ? s.localVideoUrl : null
+    }));
   }
 
   async function goToPreviousStep() {
@@ -130,7 +133,8 @@
   async function handleCancelToStep1() {
     await stopProcessesSafely();
     currentStep = 1;
-    handleReset();
+    // Passiamo true per mantenere il video caricato
+    handleReset(true);
   }
 </script>
 
