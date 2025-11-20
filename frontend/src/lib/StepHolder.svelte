@@ -12,8 +12,8 @@
   let selectedFile = null;
   let isUploading = false;
   let fps = 30;
-  let personHeight = 192;
-  let bodyMass = 97;
+  let personHeight = Number(sessionStorage.getItem('playerHeight')) || 192;
+  let bodyMass = Number(sessionStorage.getItem('playerWeight')) || 97;
   let errorMessage = '';
   let isCalibrating = false;
   let isAnalyzing = false;
@@ -33,6 +33,17 @@
   async function handleFileSelect(event) {
     selectedFile = event.target.files[0];
     if (selectedFile) {
+      // Leggi altezza e peso da sessionStorage quando viene caricato il video
+      const height = sessionStorage.getItem('playerHeight'); // in cm
+      const weight = sessionStorage.getItem('playerWeight'); // in kg
+      
+      if (height) {
+        personHeight = Number(height) || personHeight;
+      }
+      if (weight) {
+        bodyMass = Number(weight) || bodyMass;
+      }
+      
       try {
         const objectUrl = URL.createObjectURL(selectedFile);
         setLocalVideoUrl(objectUrl);
