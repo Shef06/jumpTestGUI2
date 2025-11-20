@@ -7,7 +7,7 @@
     <script>
       // Error handler for module loading
       window.addEventListener('error', function(e) {
-        console.error('Errore di caricamento:', e);
+        console.error('Errore di caricamento:', e); 
         const app = document.getElementById('app');
         if (app && !app.querySelector('h1')) {
           const errorMsg = e.message || e.filename || 'Errore sconosciuto';
