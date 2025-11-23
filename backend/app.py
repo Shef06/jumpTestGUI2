@@ -1,6 +1,6 @@
 """
 Flask Backend Ottimizzato per Jump Analyzer Pro
-Miglioramenti: caching, gestione errori, performance
+Miglioramenti: Lazy loading dei modelli AI, caching, gestione errori, performance
 """
 
 from flask import Flask, request, jsonify, send_file
@@ -16,6 +16,7 @@ from werkzeug.utils import secure_filename
 import threading
 import json
 from functools import lru_cache
+# Import ottimizzati (il caricamento pesante è gestito internamente ora)
 from contour import get_head_y
 from jump_analyzer import JumpAnalyzer
 
@@ -29,10 +30,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
 
-# Inizializzazione Mediapipe (singleton)
-mp_pose = mp.solutions.pose
-mp_drawing = mp.solutions.drawing_utils
-mp_drawing_styles = mp.solutions.drawing_styles
+# NOTA: Abbiamo rimosso l'inizializzazione globale di mp_pose per velocizzare l'avvio
 
 # Stato applicazione con lock per thread safety
 state_lock = threading.RLock()
@@ -62,7 +60,7 @@ app_state = {
 
 # Costanti per ottimizzazione
 FRAME_CACHE_DURATION = 0.033  # ~30fps max update rate
-MIN_POLL_INTERVAL = 0.1  # Minimum time between status checks
+MIN_POLL_INTERVAL = 0.1 
 
 
 def allowed_file(filename):
@@ -94,21 +92,29 @@ def set_state(**kwargs):
 
 @app.route('/api/cameras', methods=['GET'])
 def get_cameras():
-    """Ottiene lista webcam disponibili (cached)"""
+    """Ottiene lista webcam disponibili (ottimizzato)"""
     cameras = []
-    for i in range(5):  # Ridotto da 10 a 5 per velocità
-        cap = cv2.VideoCapture(i)
+    # Ridotto il range e migliorato il controllo per velocità
+    for i in range(3): 
+        # Su Windows CAP_DSHOW è più veloce nell'apertura
+        try:
+            cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+        except:
+            cap = cv2.VideoCapture(i)
+            
         if cap.isOpened():
             cameras.append(i)
             cap.release()
         else:
-            break  # Stop at first unavailable
+            # Se la 0 fallisce, probabilmente non ce ne sono altre, ma controlliamo fino a 1
+            if i == 0: continue
+            break 
+            
     return jsonify({'cameras': cameras if cameras else [0]})
 
 
 @app.route('/api/settings/camera', methods=['POST'])
 def set_camera():
-    """Imposta camera index"""
     data = request.json
     try:
         set_state(camera_index=int(data.get('index', 0)))
@@ -119,7 +125,6 @@ def set_camera():
 
 @app.route('/api/settings/fps', methods=['POST'])
 def set_fps():
-    """Imposta FPS con validazione"""
     data = request.json
     try:
         fps = int(data.get('fps', 30))
@@ -133,7 +138,6 @@ def set_fps():
 
 @app.route('/api/settings/height', methods=['POST'])
 def set_height():
-    """Imposta altezza persona"""
     data = request.json
     try:
         height = float(data.get('height'))
@@ -147,7 +151,6 @@ def set_height():
 
 @app.route('/api/settings/mass', methods=['POST'])
 def set_mass():
-    """Imposta massa corporea"""
     data = request.json
     try:
         mass = float(data.get('mass'))
@@ -161,7 +164,6 @@ def set_mass():
 
 @app.route('/api/video/upload', methods=['POST'])
 def upload_video():
-    """Upload video file con validazione migliorata"""
     if 'video' not in request.files:
         return jsonify({'success': False, 'error': 'Nessun file caricato'})
     
@@ -211,7 +213,6 @@ def upload_video():
 
 @app.route('/api/recording/start', methods=['POST'])
 def start_recording():
-    """Avvia registrazione webcam"""
     if get_state('is_recording'):
         return stop_recording()
     
@@ -225,7 +226,7 @@ def start_recording():
     if not cap.isOpened():
         return jsonify({'success': False, 'error': f'Impossibile aprire camera {camera_index}'})
     
-    # Try to reduce internal buffering if supported
+    # Buffer size ridotto
     try:
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     except Exception:
@@ -237,9 +238,9 @@ def start_recording():
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    # Warm-up: read and discard a few frames to let exposure/white balance settle
+    # Warm-up: read and discard
     try:
-        for _ in range(5):
+        for _ in range(3):
             cap.read()
     except Exception:
         pass
@@ -263,7 +264,6 @@ def start_recording():
         last_frame_time=0
     )
     
-    # Avvia thread registrazione
     thread = threading.Thread(target=recording_loop, daemon=True)
     thread.start()
     
@@ -271,9 +271,8 @@ def start_recording():
 
 
 def recording_loop():
-    """Loop registrazione con gestione errori migliorata"""
     last_update = 0
-    update_interval = 0.033  # ~30fps per UI update
+    update_interval = 0.033 
     
     while get_state('is_recording'):
         cap = get_state('cap')
@@ -286,32 +285,25 @@ def recording_loop():
         if not ret:
             break
         
-        elapsed = time.time() - get_state('record_start_time')
-        # cv2.putText(frame, f"REC {elapsed:.1f}s", (10, 40),
-        #             cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
-        # cv2.circle(frame, (frame.shape[1] - 40, 40), 15, (0, 0, 255), -1)
-        
         writer.write(frame)
         
         # Update frame for streaming (rate limited)
         current_time = time.time()
         if current_time - last_update >= update_interval:
             try:
-                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70]) # Quality reduced for speed
                 set_state(current_video_frame=base64.b64encode(buffer).decode('utf-8'))
                 last_update = current_time
             except Exception as e:
                 print(f"Error encoding frame: {e}")
         
-        time.sleep(0.001)  # Minimal sleep to prevent CPU hogging
+        time.sleep(0.001) 
 
 
 @app.route('/api/recording/stop', methods=['POST'])
 def stop_recording():
-    """Ferma registrazione con cleanup"""
     set_state(is_recording=False)
-    
-    time.sleep(0.1)  # Allow recording thread to finish
+    time.sleep(0.1) 
     
     cap = get_state('cap')
     writer = get_state('video_writer')
@@ -332,11 +324,9 @@ def stop_recording():
 
 @app.route('/api/video/frame', methods=['GET'])
 def get_video_frame():
-    """Ottiene frame corrente (con cache)"""
     current_time = time.time()
     last_time = get_state('last_frame_time')
     
-    # Return cached frame if recent
     if current_time - last_time < FRAME_CACHE_DURATION:
         frame = get_state('frame_cache')
         if frame:
@@ -352,7 +342,6 @@ def get_video_frame():
 
 @app.route('/api/calibration/start', methods=['POST'])
 def start_calibration():
-    """Avvia calibrazione"""
     video_path = get_state('video_path')
     if not video_path or not os.path.exists(video_path):
         return jsonify({'success': False, 'error': 'Nessun video disponibile'})
@@ -362,7 +351,6 @@ def start_calibration():
     
     set_state(is_calibrating=True, analyzer=analyzer)
     
-    # Avvia thread calibrazione
     thread = threading.Thread(target=calibration_loop, daemon=True)
     thread.start()
     
@@ -370,7 +358,7 @@ def start_calibration():
 
 
 def calibration_loop():
-    """Loop calibrazione ottimizzato"""
+    """Loop calibrazione con inizializzazione Lazy di MediaPipe"""
     video_path = get_state('video_path')
     cap = cv2.VideoCapture(video_path)
     
@@ -386,7 +374,13 @@ def calibration_loop():
     frames_checked = 0
     last_update = 0
     
-    with mp_pose.Pose(
+    # === LAZY LOADING MEDIAPIPE ===
+    mp_pose_local = mp.solutions.pose
+    mp_drawing = mp.solutions.drawing_utils
+    mp_drawing_styles = mp.solutions.drawing_styles
+    # ==============================
+    
+    with mp_pose_local.Pose(
         min_detection_confidence=0.5,
         min_tracking_confidence=0.5,
         model_complexity=1
@@ -407,7 +401,7 @@ def calibration_loop():
             
             if results.pose_landmarks:
                 mp_drawing.draw_landmarks(
-                    image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS,
+                    image, results.pose_landmarks, mp_pose_local.POSE_CONNECTIONS,
                     landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style()
                 )
                 
@@ -462,7 +456,6 @@ def calibration_loop():
 
 @app.route('/api/calibration/status', methods=['GET'])
 def calibration_status():
-    """Stato calibrazione"""
     result = get_state('calibration_result')
     if result:
         set_state(calibration_result=None)
@@ -476,7 +469,6 @@ def calibration_status():
 
 @app.route('/api/analysis/start', methods=['POST'])
 def start_analysis():
-    """Avvia analisi"""
     video_path = get_state('video_path')
     if not video_path or not os.path.exists(video_path):
         return jsonify({'success': False, 'error': 'Nessun video disponibile'})
@@ -492,7 +484,6 @@ def start_analysis():
         realtime_data={}
     )
     
-    # Avvia thread analisi
     thread = threading.Thread(target=analysis_loop, daemon=True)
     set_state(analysis_thread=thread)
     thread.start()
@@ -501,7 +492,7 @@ def start_analysis():
 
 
 def analysis_loop():
-    """Loop analisi ottimizzato"""
+    """Loop analisi con inizializzazione Lazy di MediaPipe"""
     video_path = get_state('video_path')
     cap = cv2.VideoCapture(video_path)
     
@@ -516,10 +507,15 @@ def analysis_loop():
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
     set_state(total_frames=total_frames, current_frame=0)
-    
     last_update = 0
     
-    with mp_pose.Pose(
+    # === LAZY LOADING MEDIAPIPE ===
+    mp_pose_local = mp.solutions.pose
+    mp_drawing = mp.solutions.drawing_utils
+    mp_drawing_styles = mp.solutions.drawing_styles
+    # ==============================
+    
+    with mp_pose_local.Pose(
         min_detection_confidence=0.5,
         min_tracking_confidence=0.5,
         model_complexity=1
@@ -545,12 +541,12 @@ def analysis_loop():
             
             if results.pose_landmarks:
                 mp_drawing.draw_landmarks(
-                    image, results.pose_landmarks, mp_pose.POSE_CONNECTIONS,
+                    image, results.pose_landmarks, mp_pose_local.POSE_CONNECTIONS,
                     landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style()
                 )
                 
-                left_hip = results.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_HIP]
-                right_hip = results.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_HIP]
+                left_hip = results.pose_landmarks.landmark[mp_pose_local.PoseLandmark.LEFT_HIP]
+                right_hip = results.pose_landmarks.landmark[mp_pose_local.PoseLandmark.RIGHT_HIP]
                 hip_y = ((left_hip.y + right_hip.y) / 2) * frame_height
                 
                 analyzer = get_state('analyzer')
@@ -570,7 +566,7 @@ def analysis_loop():
                     cv2.putText(image, f"Altezza: {current_height:.1f} cm", (10, 90),
                                 cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
                     
-                    # Update data (con sampling per ridurre carico)
+                    # Update data
                     t_seconds = analyzer.current_frame / max(1, analyzer.fps)
                     
                     traj_data = get_state('trajectory_data')
@@ -593,7 +589,7 @@ def analysis_loop():
                         'estimated_power': round(analyzer.get_estimated_power(body_mass), 1)
                     })
             
-            # Update frame (rate limited)
+            # Update frame
             current_time = time.time()
             if current_time - last_update >= FRAME_CACHE_DURATION:
                 try:
@@ -636,7 +632,6 @@ def analysis_loop():
 
 @app.route('/api/analysis/status', methods=['GET'])
 def analysis_status():
-    """Stato analisi"""
     return jsonify({
         'is_analyzing': get_state('is_analyzing'),
         'is_paused': get_state('is_paused'),
@@ -647,7 +642,6 @@ def analysis_status():
 
 @app.route('/api/analysis/data', methods=['GET'])
 def analysis_data():
-    """Dati real-time analisi"""
     return jsonify({
         'realtime': get_state('realtime_data'),
         'trajectory': get_state('trajectory_data'),
@@ -656,7 +650,7 @@ def analysis_data():
 
 
 # Funzioni di calcolo per i risultati
-G = 9.81  # Accelerazione di gravità in m/s²
+G = 9.81 
 
 def compute_derived_velocity(trajectory_data):
     """Calcola la velocità derivata dalla traiettoria"""
@@ -681,12 +675,10 @@ def compute_derived_velocity(trajectory_data):
     if len(velocities) == 0:
         return []
     
-    # Aggiungi un punto iniziale a t=0 (primo tempo disponibile) con v=0
     return [{'t': trajectory_data[0]['t'], 'v': 0}] + velocities
 
 
 def get_phase_times(trajectory_data, velocity_data):
-    """Calcola i tempi delle fasi del salto"""
     if not trajectory_data or len(trajectory_data) < 2 or not velocity_data or len(velocity_data) < 2:
         return None
     
@@ -698,10 +690,8 @@ def get_phase_times(trajectory_data, velocity_data):
     concentric_end_time = None
     takeoff_time = None
     
-    # Trova inizio contatto / inizio fase eccentrica
     for i, vel_point in enumerate(velocity_data):
         if vel_point['v'] < 0 and contact_start_time is None:
-            # Trova l'altezza corrispondente
             height_at_time = next((t for t in trajectory_data if abs(t['t'] - vel_point['t']) < 0.01), None)
             if height_at_time and height_at_time['y'] < baseline_height:
                 contact_start_time = vel_point['t']
@@ -712,7 +702,6 @@ def get_phase_times(trajectory_data, velocity_data):
                 eccentric_start_time = vel_point['t']
                 break
     
-    # Trova fine fase eccentrica (minimo velocità)
     min_velocity = float('inf')
     min_velocity_index = -1
     for i, vel_point in enumerate(velocity_data):
@@ -724,7 +713,6 @@ def get_phase_times(trajectory_data, velocity_data):
         eccentric_end_time = velocity_data[min_velocity_index]['t']
         concentric_start_time = velocity_data[min_velocity_index]['t']
     
-    # Trova fine fase concentrica / decollo
     min_height = float('inf')
     min_height_index = -1
     for i, traj_point in enumerate(trajectory_data):
@@ -735,7 +723,6 @@ def get_phase_times(trajectory_data, velocity_data):
     if min_height_index >= 0:
         for i in range(min_height_index + 1, len(trajectory_data)):
             if trajectory_data[i]['y'] >= baseline_height:
-                # Trova la velocità corrispondente
                 velocity_at_time = next((v for v in velocity_data if abs(v['t'] - trajectory_data[i]['t']) < 0.01), None)
                 if velocity_at_time and velocity_at_time['v'] > 0:
                     takeoff_time = trajectory_data[i]['t']
@@ -754,16 +741,11 @@ def get_phase_times(trajectory_data, velocity_data):
 
 
 def calculate_average_force_from_velocity(velocity_data, trajectory_data, body_mass_kg=70.0):
-    """Calcola la forza media dalla velocità"""
     if not velocity_data or len(velocity_data) < 2 or body_mass_kg <= 0:
         return 0
     
-    CONTACT_THRESHOLD = 5.0  # cm
-    
-    # Crea una mappa per l'altezza
+    CONTACT_THRESHOLD = 5.0
     height_map = {point['t']: point['y'] for point in trajectory_data} if trajectory_data else {}
-    
-    # Calcola l'accelerazione dalla velocità
     accelerations = []
     for i in range(1, len(velocity_data)):
         prev = velocity_data[i - 1]
@@ -771,10 +753,9 @@ def calculate_average_force_from_velocity(velocity_data, trajectory_data, body_m
         delta_t = curr['t'] - prev['t']
         
         if delta_t > 0 and np.isfinite(delta_t):
-            v1_ms = prev['v'] / 100  # cm/s -> m/s
+            v1_ms = prev['v'] / 100
             v2_ms = curr['v'] / 100
             a_ms2 = (v2_ms - v1_ms) / delta_t
-            
             accelerations.append({
                 'time': curr['t'],
                 'a_ms2': a_ms2,
@@ -784,7 +765,6 @@ def calculate_average_force_from_velocity(velocity_data, trajectory_data, body_m
     if len(accelerations) == 0:
         return 0
     
-    # Calcola la forza istantanea solo durante la fase di contatto
     forces = []
     for acc in accelerations:
         height = height_map.get(acc['time'])
@@ -802,7 +782,6 @@ def calculate_average_force_from_velocity(velocity_data, trajectory_data, body_m
 
 
 def calculate_takeoff_velocity(trajectory_data, velocity_data):
-    """Calcola la velocità di decollo"""
     if not trajectory_data or len(trajectory_data) < 2 or not velocity_data or len(velocity_data) < 2:
         return 0
     
@@ -811,13 +790,11 @@ def calculate_takeoff_velocity(trajectory_data, velocity_data):
     min_height = float('inf')
     min_height_index = -1
     
-    # Trova il minimo dell'altezza
     for i, point in enumerate(trajectory_data):
         if point['y'] < min_height:
             min_height = point['y']
             min_height_index = i
     
-    # Dopo il fondo piegamento, trova quando l'altezza torna al baseline
     if min_height_index >= 0:
         for i in range(min_height_index + 1, len(trajectory_data)):
             if trajectory_data[i]['y'] >= baseline_height:
@@ -826,7 +803,6 @@ def calculate_takeoff_velocity(trajectory_data, velocity_data):
                     takeoff_time = trajectory_data[i]['t']
                     break
     
-    # Trova l'altezza massima nella fase di volo
     h_max_volo = 0
     if takeoff_time is not None:
         for point in trajectory_data:
@@ -838,19 +814,16 @@ def calculate_takeoff_velocity(trajectory_data, velocity_data):
                 if trajectory_data[i]['y'] > h_max_volo:
                     h_max_volo = trajectory_data[i]['y']
     
-    # Calcola la velocità di decollo usando v = sqrt(2 * g * h)
     if h_max_volo > 0:
-        h_max_m = h_max_volo / 100  # cm -> m
+        h_max_m = h_max_volo / 100
         v_decollo_ms = np.sqrt(2 * G * h_max_m)
-        return v_decollo_ms * 100  # m/s -> cm/s
+        return v_decollo_ms * 100
     
-    # Fallback: usa il valore diretto della velocità al momento del decollo
     if takeoff_time is not None:
         velocity_at_takeoff = next((v for v in velocity_data if abs(v['t'] - takeoff_time) < 0.01), None)
         if velocity_at_takeoff and velocity_at_takeoff['v'] > 0:
             return velocity_at_takeoff['v']
     
-    # Ultimo fallback: trova la velocità massima positiva
     max_velocity = 0
     for vel_point in velocity_data:
         if vel_point['v'] > max_velocity:
@@ -860,7 +833,6 @@ def calculate_takeoff_velocity(trajectory_data, velocity_data):
 
 
 def calculate_concentric_time(trajectory_data, velocity_data, body_mass_kg=70.0):
-    """Calcola la fase concentrica"""
     if not trajectory_data or len(trajectory_data) < 2 or not velocity_data or len(velocity_data) < 2:
         return 0
     
@@ -868,7 +840,6 @@ def calculate_concentric_time(trajectory_data, velocity_data, body_mass_kg=70.0)
     concentric_start_time = None
     concentric_end_time = None
     
-    # Trova il minimo della velocità
     min_velocity = float('inf')
     min_velocity_index = -1
     for i, vel_point in enumerate(velocity_data):
@@ -876,14 +847,12 @@ def calculate_concentric_time(trajectory_data, velocity_data, body_mass_kg=70.0)
             min_velocity = vel_point['v']
             min_velocity_index = i
     
-    # Inizio fase concentrica: quando la velocità diventa positiva dopo il minimo
     if min_velocity_index >= 0:
         for i in range(min_velocity_index, len(velocity_data)):
             if velocity_data[i]['v'] > 0 or (i > min_velocity_index and velocity_data[i]['v'] > velocity_data[i - 1]['v'] + 5):
                 concentric_start_time = velocity_data[i]['t']
                 break
     
-    # Fine fase concentrica: quando avviene il decollo
     min_height = float('inf')
     min_height_index = -1
     for i, point in enumerate(trajectory_data):
@@ -899,7 +868,6 @@ def calculate_concentric_time(trajectory_data, velocity_data, body_mass_kg=70.0)
                     concentric_end_time = trajectory_data[i]['t']
                     break
     
-    # Se non abbiamo trovato la fine, usa il momento della velocità massima
     if concentric_start_time is not None and concentric_end_time is None:
         max_velocity = 0
         max_velocity_time = None
@@ -917,7 +885,6 @@ def calculate_concentric_time(trajectory_data, velocity_data, body_mass_kg=70.0)
 
 
 def calculate_eccentric_time(trajectory_data, velocity_data):
-    """Calcola la fase eccentrica"""
     if not trajectory_data or len(trajectory_data) < 2 or not velocity_data or len(velocity_data) < 2:
         return 0
     
@@ -925,7 +892,6 @@ def calculate_eccentric_time(trajectory_data, velocity_data):
     eccentric_start_time = None
     eccentric_end_time = None
     
-    # Trova il minimo della velocità
     min_velocity = float('inf')
     min_velocity_index = -1
     for i, vel_point in enumerate(velocity_data):
@@ -933,7 +899,6 @@ def calculate_eccentric_time(trajectory_data, velocity_data):
             min_velocity = vel_point['v']
             min_velocity_index = i
     
-    # Inizio fase eccentrica: quando la velocità diventa negativa per la prima volta
     for vel_point in velocity_data:
         if vel_point['v'] < 0 and eccentric_start_time is None:
             height_at_time = next((t for t in trajectory_data if abs(t['t'] - vel_point['t']) < 0.01), None)
@@ -944,7 +909,6 @@ def calculate_eccentric_time(trajectory_data, velocity_data):
                 eccentric_start_time = vel_point['t']
                 break
     
-    # Fine fase eccentrica: quando la velocità raggiunge il minimo
     if min_velocity_index >= 0:
         eccentric_end_time = velocity_data[min_velocity_index]['t']
     
@@ -955,7 +919,6 @@ def calculate_eccentric_time(trajectory_data, velocity_data):
 
 
 def calculate_contact_time(trajectory_data, velocity_data):
-    """Calcola il tempo di contatto"""
     if not trajectory_data or len(trajectory_data) < 2 or not velocity_data or len(velocity_data) < 2:
         return 0
     
@@ -963,7 +926,6 @@ def calculate_contact_time(trajectory_data, velocity_data):
     contact_start_time = None
     contact_end_time = None
     
-    # Inizio contatto: quando la velocità diventa negativa per la prima volta
     for vel_point in velocity_data:
         if vel_point['v'] < 0 and contact_start_time is None:
             height_at_time = next((t for t in trajectory_data if abs(t['t'] - vel_point['t']) < 0.01), None)
@@ -974,7 +936,6 @@ def calculate_contact_time(trajectory_data, velocity_data):
                 contact_start_time = vel_point['t']
                 break
     
-    # Fine contatto: quando avviene il decollo
     min_height = float('inf')
     min_height_index = -1
     for i, point in enumerate(trajectory_data):
@@ -990,7 +951,6 @@ def calculate_contact_time(trajectory_data, velocity_data):
                     contact_end_time = trajectory_data[i]['t']
                     break
     
-    # Se non abbiamo trovato il decollo, usa il momento della velocità massima
     if contact_start_time is not None and contact_end_time is None:
         max_velocity = 0
         max_velocity_time = None
@@ -1004,7 +964,6 @@ def calculate_contact_time(trajectory_data, velocity_data):
     if contact_start_time is not None and contact_end_time is not None and contact_end_time > contact_start_time:
         return contact_end_time - contact_start_time
     
-    # Fallback: usa la somma di fase eccentrica + fase concentrica
     eccentric_time = calculate_eccentric_time(trajectory_data, velocity_data)
     concentric_time = calculate_concentric_time(trajectory_data, velocity_data, 70.0)
     if eccentric_time > 0 and concentric_time > 0:
@@ -1014,16 +973,11 @@ def calculate_contact_time(trajectory_data, velocity_data):
 
 
 def calculate_estimated_power(velocity_data, trajectory_data, body_mass_kg=70.0):
-    """Calcola la potenza esplosiva"""
     if not velocity_data or len(velocity_data) < 2 or body_mass_kg <= 0:
         return 0
     
-    CONTACT_THRESHOLD = 5.0  # cm
-    
-    # Crea una mappa per l'altezza
+    CONTACT_THRESHOLD = 5.0
     height_map = {point['t']: point['y'] for point in trajectory_data} if trajectory_data else {}
-    
-    # Calcola l'accelerazione dalla velocità
     accelerations = []
     for i in range(1, len(velocity_data)):
         prev = velocity_data[i - 1]
@@ -1031,10 +985,9 @@ def calculate_estimated_power(velocity_data, trajectory_data, body_mass_kg=70.0)
         delta_t = curr['t'] - prev['t']
         
         if delta_t > 0 and np.isfinite(delta_t):
-            v1_ms = prev['v'] / 100  # cm/s -> m/s
+            v1_ms = prev['v'] / 100
             v2_ms = curr['v'] / 100
             a_ms2 = (v2_ms - v1_ms) / delta_t
-            
             accelerations.append({
                 'time': curr['t'],
                 'a_ms2': a_ms2,
@@ -1044,7 +997,6 @@ def calculate_estimated_power(velocity_data, trajectory_data, body_mass_kg=70.0)
     if len(accelerations) == 0:
         return 0
     
-    # Calcola la potenza istantanea solo durante la fase concentrica
     powers = []
     for acc in accelerations:
         height = height_map.get(acc['time'])
@@ -1053,7 +1005,7 @@ def calculate_estimated_power(velocity_data, trajectory_data, body_mass_kg=70.0)
         if is_in_contact and acc['velocity'] > 0 and abs(acc['a_ms2']) > 0.05:
             force = body_mass_kg * (acc['a_ms2'] + G)
             if force > body_mass_kg * G * 0.3:
-                v_ms = acc['velocity'] / 100  # cm/s -> m/s
+                v_ms = acc['velocity'] / 100
                 power = force * v_ms
                 if power > 0:
                     powers.append(power)
@@ -1066,7 +1018,6 @@ def calculate_estimated_power(velocity_data, trajectory_data, body_mass_kg=70.0)
 
 @app.route('/api/analysis/results', methods=['GET'])
 def analysis_results():
-    """Risultati finali con tutti i calcoli"""
     final_results = get_state('final_results')
     if not final_results:
         return jsonify({'success': False, 'error': 'Analisi non completata'})
@@ -1075,10 +1026,8 @@ def analysis_results():
     velocity_data = get_state('velocity_data') or []
     body_mass_kg = get_state('body_mass_kg') or 70.0
     
-    # Calcola la velocità derivata dalla traiettoria
     derived_velocity_data = compute_derived_velocity(trajectory_data)
     
-    # Calcola tutti i valori aggiuntivi
     calculated_average_force = calculate_average_force_from_velocity(derived_velocity_data, trajectory_data, body_mass_kg)
     calculated_takeoff_velocity = calculate_takeoff_velocity(trajectory_data, derived_velocity_data)
     calculated_concentric_time = calculate_concentric_time(trajectory_data, derived_velocity_data, body_mass_kg)
@@ -1087,7 +1036,6 @@ def analysis_results():
     calculated_estimated_power = calculate_estimated_power(derived_velocity_data, trajectory_data, body_mass_kg)
     phase_times = get_phase_times(trajectory_data, derived_velocity_data)
     
-    # Aggiungi i valori calcolati ai risultati
     enhanced_results = final_results.copy()
     enhanced_results.update({
         'calculated_average_force': round(calculated_average_force, 1),
@@ -1102,14 +1050,13 @@ def analysis_results():
         'success': True,
         'results': enhanced_results,
         'trajectory': trajectory_data,
-        'velocity': derived_velocity_data,  # Usa la velocità derivata invece di quella originale
+        'velocity': derived_velocity_data,
         'phase_times': phase_times
     })
 
 
 @app.route('/api/analysis/pause', methods=['POST'])
 def pause_analysis():
-    """Pausa analisi"""
     if get_state('is_analyzing'):
         set_state(is_paused=True)
         return jsonify({'success': True})
@@ -1118,7 +1065,6 @@ def pause_analysis():
 
 @app.route('/api/analysis/resume', methods=['POST'])
 def resume_analysis():
-    """Riprendi analisi"""
     if get_state('is_analyzing'):
         set_state(is_paused=False)
         return jsonify({'success': True})
@@ -1127,14 +1073,12 @@ def resume_analysis():
 
 @app.route('/api/analysis/stop', methods=['POST'])
 def stop_analysis():
-    """Ferma analisi"""
     set_state(is_analyzing=False, is_paused=False)
     return jsonify({'success': True})
 
 
 @app.route('/api/results/save', methods=['POST'])
 def save_results():
-    """Salva risultati in file JSON con tutti i valori calcolati"""
     try:
         final_results = get_state('final_results')
         if not final_results:
@@ -1144,10 +1088,8 @@ def save_results():
         velocity_data = get_state('velocity_data') or []
         body_mass_kg = get_state('body_mass_kg') or 70.0
         
-        # Calcola la velocità derivata dalla traiettoria
         derived_velocity_data = compute_derived_velocity(trajectory_data)
         
-        # Calcola tutti i valori aggiuntivi (come nell'endpoint /api/analysis/results)
         calculated_average_force = calculate_average_force_from_velocity(derived_velocity_data, trajectory_data, body_mass_kg)
         calculated_takeoff_velocity = calculate_takeoff_velocity(trajectory_data, derived_velocity_data)
         calculated_concentric_time = calculate_concentric_time(trajectory_data, derived_velocity_data, body_mass_kg)
@@ -1156,7 +1098,6 @@ def save_results():
         calculated_estimated_power = calculate_estimated_power(derived_velocity_data, trajectory_data, body_mass_kg)
         phase_times = get_phase_times(trajectory_data, derived_velocity_data)
         
-        # Aggiungi i valori calcolati ai risultati (senza prefisso "calculated_")
         enhanced_results = final_results.copy()
         enhanced_results.update({
             'average_force': round(calculated_average_force, 1),
@@ -1169,10 +1110,10 @@ def save_results():
         
         save_data = {
             'timestamp': datetime.now().isoformat(),
-            'results': enhanced_results,  # Usa enhanced_results invece di final_results
+            'results': enhanced_results,
             'trajectory': trajectory_data,
-            'velocity': derived_velocity_data,  # Usa la velocità derivata invece di quella originale
-            'phase_times': phase_times,  # Aggiungi anche i tempi delle fasi
+            'velocity': derived_velocity_data,
+            'phase_times': phase_times,
             'settings': {
                 'fps': get_state('fps'),
                 'person_height_cm': get_state('person_height_cm'),
@@ -1180,7 +1121,6 @@ def save_results():
             }
         }
         
-        # Salvataggio nella directory last_jump (comportamento originale)
         save_dir = os.path.expanduser('~\\AppData\\Roaming\\Kin.ai\\last_jump')
         os.makedirs(save_dir, exist_ok=True)
         
@@ -1188,19 +1128,19 @@ def save_results():
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(save_data, f, indent=2, ensure_ascii=False)
         
-        # Salvataggio aggiuntivo in test_results se test_id è fornito
         test_id = None
         if request.json:
             test_id = request.json.get('test_id')
         
         test_results_path = None
+        jump_key = None 
+        
         if test_id:
             test_dir = os.path.expanduser(f'~\\AppData\\Roaming\\Kin.ai\\test_results\\{test_id}')
             os.makedirs(test_dir, exist_ok=True)
             
             test_results_path = os.path.join(test_dir, 'results.json')
             
-            # Leggi il file esistente se presente
             existing_data = {}
             if os.path.exists(test_results_path):
                 try:
@@ -1210,10 +1150,8 @@ def save_results():
                     print(f"Errore lettura file esistente: {e}")
                     existing_data = {}
             
-            # Trova il prossimo numero di salto
             jump_keys = [key for key in existing_data.keys() if key.startswith('jump_')]
             if jump_keys:
-                # Estrai i numeri e trova il massimo
                 jump_numbers = []
                 for key in jump_keys:
                     try:
@@ -1225,11 +1163,9 @@ def save_results():
             else:
                 next_jump_num = 1
             
-            # Aggiungi il nuovo salto
             jump_key = f'jump_{next_jump_num}'
             existing_data[jump_key] = save_data
             
-            # Salva il file aggiornato
             with open(test_results_path, 'w', encoding='utf-8') as f:
                 json.dump(existing_data, f, indent=2, ensure_ascii=False)
         
@@ -1241,7 +1177,7 @@ def save_results():
         
         if test_results_path:
             response['test_results_path'] = test_results_path
-            response['jump_key'] = jump_key if test_id else None
+            response['jump_key'] = jump_key
         
         return jsonify(response)
         
@@ -1251,7 +1187,6 @@ def save_results():
 
 @app.route('/api/video/info', methods=['GET'])
 def video_info():
-    """Info video corrente"""
     path = get_state('video_path')
     total = get_state('total_frames')
     fps = get_state('fps')
@@ -1265,7 +1200,6 @@ def video_info():
 
 @app.route('/api/video/frame_at', methods=['GET'])
 def video_frame_at():
-    """Frame specifico (ottimizzato con cache)"""
     try:
         index = int(request.args.get('index', 0))
     except:
@@ -1300,6 +1234,5 @@ def video_frame_at():
 
 
 if __name__ == '__main__':
-    print("🚀 Avvio server Flask su http://127.0.0.1:5000")
-    
+    print("🚀 Avvio server Flask su http://127.0.0.1:5000 (Ottimizzato)")
     app.run(debug=False, host='127.0.0.1', port=5000, threaded=True)
