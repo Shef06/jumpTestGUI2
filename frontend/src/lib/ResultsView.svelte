@@ -372,7 +372,13 @@
     isSaving = true;
     saveMessage = '';
     try {
-      const response = await fetch(`${getBackendUrl()}/api/results/save`, { method: 'POST' });
+      const response = await fetch(`${getBackendUrl()}/api/results/save`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({})
+      });
       const data = await response.json();
       if (data.success) saveMessage = 'Risultati salvati!';
       else saveMessage = data.error || 'Errore salvataggio';
