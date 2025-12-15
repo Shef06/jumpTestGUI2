@@ -1,257 +1,225 @@
-import mediapipe as mp
 import numpy as np
-from contour import get_head_y
 
 class JumpAnalyzer:
-    """Classe per analizzare i salti verticali"""
+    """
+    Analizzatore di salti basato sulla fisica del tempo di volo (5 Fasi).
+    Sostituisce la logica basata sull'altezza utente.
+    """
 
     def __init__(self, fps=30):
         self.fps = fps
         self.g = 9.81
-        self.baseline_hip_y = None
-        self.max_jump_height_pixels = 0
-        self.max_jump_height_cm = 0
+        
+        # --- FASE 1: Dati Grezzi ---
+        self.raw_hip_y_pixels = []  # Lista posizioni Y in pixel
+        self.timestamps = []        # Tempi relativi
+        self.baseline_pixel = None  # Posizione 'zero' (in piedi) in pixel
+        
+        # Stato runtime
+        self.current_frame = 0
         self.jump_started = False
         self.jump_ended = False
-        self.jump_max_height_frame = None
-        self.jump_fall = None
-        self.takeoff_frame = None
-        self.landing_frame = None
-        self.current_frame = 0
-        self.hip_positions = []
-        self.calibration_frames = []
-        self.pixel_to_cm_ratio = None
-        self.calibrated_with_height = False
-        self.person_height_cm = None
         
-        # Nuove variabili per analisi fasi
-        self.hip_velocities = []
-        self.contact_start_frame = None
-        self.contact_end_frame = None
-        self.eccentric_start_frame = None
-        self.concentric_start_frame = None
-        self.contact_time = 0.0
-        self.eccentric_time = 0.0
-        self.concentric_time = 0.0
+        # Risultati calcolati (Fase 5)
+        self.calibrated_with_height = False # Flag mantenuto per compatibilità app.py
+        self.normalized_trajectory = [] 
+        self.derived_velocity = []
+        self.final_stats = None
 
-    def calibrate_with_person_height(self, person_height_cm, pose_landmarks, frame_height, frame=None):
+        # Variabili legacy per compatibilità getter immediati (saranno 0 fino alla fine)
+        self.max_jump_height_cm = 0
+        self.hip_velocities = [] 
+
+    def calibrate_baseline(self, hip_y_pixel):
         """
-        Calibra usando l'altezza reale della persona.
-        Accesso a mp_pose locale per evitare caricamenti globali.
+        Cattura la posizione in piedi (baseline). 
+        Sostituisce la vecchia calibrazione con altezza.
         """
-        # Accesso locale alle costanti MediaPipe
-        mp_pose_landmarks = mp.solutions.pose.PoseLandmark
+        if self.baseline_pixel is None:
+            self.baseline_pixel = hip_y_pixel
+        else:
+            # Media mobile esponenziale per stabilizzare la baseline
+            self.baseline_pixel = (self.baseline_pixel * 0.9) + (hip_y_pixel * 0.1)
         
-        try:
-            left_ankle = pose_landmarks.landmark[mp_pose_landmarks.LEFT_HEEL]
-            right_ankle = pose_landmarks.landmark[mp_pose_landmarks.RIGHT_HEEL]
+        # Impostiamo a True per dire ad app.py che siamo pronti
+        self.calibrated_with_height = True 
+        return True
 
-            # Calcola posizione media talloni (piedi)
-            ankle_y = (left_ankle.y + right_ankle.y) / 2
-
-            # Ottieni y testa normalizzata tramite segmentazione
-            if frame is None:
-                raise ValueError("Frame necessario per calcolare la testa con get_head_y")
-            
-            head_y_norm = float(get_head_y(frame))
-            
-            # Se get_head_y fallisce (ritorna 0.0), abortire
-            if head_y_norm == 0.0:
-                return False
-
-            # Altezza persona in pixel: testa (y minima) -> tallone (y media)
-            person_height_pixels = abs((ankle_y - head_y_norm) * frame_height)
-
-            # Verifica che i dati siano validi
-            if person_height_pixels < 100:  # Troppo piccolo, probabilmente errore
-                return False
-
-            # Calcola il rapporto pixel->cm
-            self.pixel_to_cm_ratio = person_height_cm / person_height_pixels
-            self.calibrated_with_height = True
-            self.person_height_cm = person_height_cm
-
-            return True
-
-        except Exception as e:
-            print(f"Errore calibrazione: {e}")
-            return False
-
-    def calibrate_baseline(self, hip_y):
-        self.calibration_frames.append(hip_y)
-        if len(self.calibration_frames) >= 30:
-            self.baseline_hip_y = np.mean(self.calibration_frames)
-            return True
-        return False
-
-    def detect_jump_start(self, current_hip_y, threshold=0.05):
-        if self.baseline_hip_y is None:
-            return False
-        movement = self.baseline_hip_y - current_hip_y
-        threshold_pixels = threshold * abs(self.baseline_hip_y)
-        if movement > threshold_pixels and not self.jump_started:
-            self.jump_started = True
-            self.takeoff_frame = self.current_frame
-            return True
-        return False
-
-    def detect_jump_end(self, current_hip_y, threshold=0.03):
-        if not self.jump_started or self.jump_ended:
-            return False
-        distance_from_baseline = abs(current_hip_y - self.baseline_hip_y)
-        threshold_pixels = threshold * abs(self.baseline_hip_y)
-        if distance_from_baseline < threshold_pixels and self.current_frame > self.takeoff_frame + 5:
-            self.jump_ended = True
-            self.landing_frame = self.current_frame
-            self.jump_fall = (self.landing_frame - self.jump_max_height_frame) / self.fps
-            return True
-        return False
-
-    def update_jump_height(self, current_hip_y):
-        if self.baseline_hip_y is None or not self.jump_started:
-            return
-        height_pixels = self.baseline_hip_y - current_hip_y
-        if height_pixels > self.max_jump_height_pixels:
-            self.max_jump_height_pixels = height_pixels
-            self.jump_max_height_frame = self.current_frame
-            if self.pixel_to_cm_ratio:
-                self.max_jump_height_cm = height_pixels * self.pixel_to_cm_ratio
-
-    def get_flight_time(self):
-        if self.takeoff_frame is not None and self.landing_frame is not None:
-            frames_in_air = self.landing_frame - self.takeoff_frame
-            return frames_in_air / self.fps
-        return 0
-
-    def get_fall_time(self):
-        if self.jump_max_height_frame is not None and self.landing_frame is not None:
-            frames_falling = self.landing_frame - self.jump_max_height_frame
-            return frames_falling / self.fps
-        return 0
-
-    def calculate_velocity(self, current_hip_y):
-        if len(self.hip_positions) < 2 or not self.pixel_to_cm_ratio:
-            return 0.0
-        delta_y_pixels = self.hip_positions[-1] - current_hip_y
-        delta_t = 1.0 / self.fps
-        delta_y_cm = delta_y_pixels * self.pixel_to_cm_ratio
-        return delta_y_cm / delta_t
-
-    def detect_contact_phases(self, current_hip_y, velocity):
-        if not self.jump_started or self.jump_ended:
-            return
-        if (self.contact_start_frame is None and 
-            current_hip_y > self.baseline_hip_y and 
-            self.current_frame > self.takeoff_frame + 10):
-            self.contact_start_frame = self.current_frame
-        if (self.contact_start_frame is not None and 
-            self.contact_end_frame is None and 
-            current_hip_y < self.baseline_hip_y):
-            self.contact_end_frame = self.current_frame
-        if (self.contact_start_frame is not None and 
-            self.eccentric_start_frame is None and 
-            velocity < -5.0):
-            self.eccentric_start_frame = self.current_frame
-        if (self.eccentric_start_frame is not None and 
-            self.concentric_start_frame is None and 
-            velocity > 5.0):
-            self.concentric_start_frame = self.current_frame
-
-    def get_contact_time(self):
-        if self.contact_start_frame is not None and self.contact_end_frame is not None:
-            return (self.contact_end_frame - self.contact_start_frame) / self.fps
-        return 0.0
-
-    def get_eccentric_time(self):
-        if self.eccentric_start_frame is not None and self.concentric_start_frame is not None:
-            return (self.concentric_start_frame - self.eccentric_start_frame) / self.fps
-        return 0.0
-
-    def get_concentric_time(self):
-        if self.concentric_start_frame is not None and self.contact_end_frame is not None:
-            return (self.contact_end_frame - self.concentric_start_frame) / self.fps
-        return 0.0
-
-    def get_takeoff_velocity(self):
-        if not self.jump_started or not self.hip_velocities:
-            return 0.0
-        max_velocity = 0.0
-        for velocity in self.hip_velocities:
-            if velocity > max_velocity:
-                max_velocity = velocity
-        return max_velocity
-
-    def get_estimated_power(self, body_mass_kg=70.0):
-        if not self.jump_started:
-            return 0.0
-        v0 = self.get_takeoff_velocity()
-        max_height = self.max_jump_height_cm / 100.0
-        if v0 <= 0 or max_height <= 0:
-            return 0.0
-        contact_time = self.get_contact_time()
-        if contact_time <= 0:
-            return 0.0
-        kinetic_energy = 0.5 * body_mass_kg * (v0 / 100.0) ** 2
-        potential_energy = body_mass_kg * self.g * max_height
-        total_energy = kinetic_energy + potential_energy
-        return total_energy / contact_time
-
-    def get_average_force(self, body_mass_kg=70.0):
-        if not self.jump_started:
-            return 0.0
-        contact_time = self.get_contact_time()
-        if contact_time <= 0:
-            return 0.0
-        v0 = self.get_takeoff_velocity()
-        if v0 <= 0:
-            return 0.0
-        v0_ms = v0 / 100.0
-        return (body_mass_kg * v0_ms) / contact_time
-
-    def process_frame(self, hip_y):
+    def process_frame(self, hip_y_pixel):
+        """
+        FASE 1: Raccolta dati frame per frame.
+        Non esegue calcoli fisici complessi qui, solo raccolta.
+        """
         self.current_frame += 1
-        self.hip_positions.append(hip_y)
+        t = self.current_frame / self.fps
         
-        if self.baseline_hip_y is None and self.calibrated_with_height:
-            calibrated = self.calibrate_baseline(hip_y)
-            if calibrated:
-                return "pronto", None
-            return "calibrazione_baseline", None
+        self.raw_hip_y_pixels.append(hip_y_pixel)
+        self.timestamps.append(t)
 
-        if not self.calibrated_with_height:
-            return "attesa_calibrazione", None
+        # Logica minimale per rilevare lo stato del salto (utile per fermare la registrazione)
+        status = "attesa_calibrazione"
+        current_height_dummy = 0.0
 
-        self.detect_jump_start(hip_y)
-        self.detect_jump_end(hip_y)
+        if self.baseline_pixel:
+            status = "analisi"
+            # Nota: in pixel, valori più alti = più in basso nello schermo.
+            # Salto = hip_y_pixel diminuisce (va verso l'alto dello schermo)
+            diff = self.baseline_pixel - hip_y_pixel
+            
+            # Soglia empirica (es. 50px) per dire "ha iniziato a saltare"
+            if diff > 50 and not self.jump_started: 
+                self.jump_started = True
+            
+            # Rilevamento fine salto (ritorno vicino alla baseline dopo il salto)
+            if self.jump_started and not self.jump_ended:
+                # Se siamo tornati giù (diff < 20px) e il salto è durato almeno 10 frame
+                if diff < 30 and len(self.raw_hip_y_pixels) > (self.current_frame - 10):
+                     self.jump_ended = True
 
-        velocity = self.calculate_velocity(hip_y)
-        self.hip_velocities.append(velocity)
-        self.detect_contact_phases(hip_y, velocity)
-        self.update_jump_height(hip_y)
+        return status, current_height_dummy
 
-        current_height_pixels = self.baseline_hip_y - hip_y if self.baseline_hip_y else 0
-        current_height_cm = current_height_pixels * self.pixel_to_cm_ratio if self.pixel_to_cm_ratio else 0
+    def calculate_metrics_post_flight(self, body_mass_kg=70.0):
+        """
+        Esegue FASE 2, 3, 4 e 5.
+        Deve essere chiamato alla fine dell'acquisizione.
+        """
+        if not self.raw_hip_y_pixels or not self.baseline_pixel:
+            return None
 
-        return "analisi", current_height_cm
+        # Convertiamo in numpy array
+        y_pixels = np.array(self.raw_hip_y_pixels)
+        baseline = self.baseline_pixel
+        
+        # Altezza in pixel rispetto alla baseline (Invertiamo asse: Baseline - Y)
+        height_curve_px = baseline - y_pixels
+        
+        # --- FASE 2: Trova Decollo e Atterraggio (Tempo di Volo) ---
+        max_px = np.max(height_curve_px)
+        if max_px < 10: return None # Nessun salto rilevato
+        
+        threshold_px = max(10, max_px * 0.15) # Soglia 15% del picco
+        in_air_indices = np.where(height_curve_px > threshold_px)[0]
+        
+        if len(in_air_indices) < 5: return None
 
-    def reset_keep_calibration(self):
-        self.baseline_hip_y = None
-        self.max_jump_height_pixels = 0
-        self.max_jump_height_cm = 0
+        takeoff_idx = in_air_indices[0]
+        landing_idx = in_air_indices[-1]
+        
+        flight_frames = landing_idx - takeoff_idx
+        flight_time = flight_frames / self.fps
+        
+        if flight_time <= 0: return None
+
+        # --- FASE 3: Calcola Altezza Fisica (h = 1/8 * g * t^2) ---
+        # Formula cinematica per il salto verticale da fermo basata sul tempo di volo
+        max_height_cm_physic = (0.125 * self.g * (flight_time ** 2)) * 100
+        self.max_jump_height_cm = max_height_cm_physic # Aggiorna variabile membro
+        
+        # --- FASE 4: Normalizzazione (Pixel -> CM) ---
+        # Troviamo il picco in pixel durante la fase di volo
+        peak_px_val = np.max(height_curve_px[takeoff_idx:landing_idx+1])
+        
+        if peak_px_val == 0: return None
+        
+        # Calcolo rapporto di conversione
+        px_to_cm_ratio = max_height_cm_physic / peak_px_val
+        
+        # Normalizziamo l'intera traiettoria
+        self.normalized_trajectory = []
+        y_cm_array = height_curve_px * px_to_cm_ratio # Array numpy per calcoli successivi
+        
+        for i, val_cm in enumerate(y_cm_array):
+            self.normalized_trajectory.append({
+                't': round(self.timestamps[i], 3),
+                'y': round(val_cm, 2)
+            })
+
+        # --- FASE 5: Calcoli Derivati sul Grafico Normalizzato ---
+        dt = 1.0 / self.fps
+        
+        # 1. Velocità (m/s)
+        pos_meters = y_cm_array / 100.0
+        velocities_ms = np.gradient(pos_meters, dt)
+        
+        self.derived_velocity = []
+        for i, v in enumerate(velocities_ms):
+            self.derived_velocity.append({
+                't': round(self.timestamps[i], 3),
+                'v': round(v * 100, 2) # Salviamo in cm/s per grafico frontend
+            })
+            
+        # 2. Accelerazione (m/s^2)
+        accelerations = np.gradient(velocities_ms, dt)
+        
+        # 3. Forza (N) -> F = m(a + g)
+        forces = (accelerations + self.g) * body_mass_kg
+        
+        # 4. Potenza (W) -> P = F * v
+        powers = forces * velocities_ms
+        
+        # Estrazione metriche puntuali
+        takeoff_velocity = velocities_ms[takeoff_idx] if takeoff_idx < len(velocities_ms) else 0
+        
+        # Potenza Massima (fase spinta)
+        push_phase_powers = powers[0:takeoff_idx]
+        max_power = np.max(push_phase_powers) if len(push_phase_powers) > 0 else 0
+        
+        # Forza Media (fase spinta attiva > peso corporeo)
+        body_weight = body_mass_kg * self.g
+        active_push_indices = np.where((forces[0:takeoff_idx] > body_weight) & (velocities_ms[0:takeoff_idx] > 0))[0]
+        
+        avg_force = 0
+        if len(active_push_indices) > 0:
+            avg_force = np.mean(forces[active_push_indices])
+            
+        # Tempi Fasi 
+        # Eccentrica: inizio discesa (v < 0) fino a inversione (v=0)
+        # Concentrica: inversione (v=0) fino a stacco
+        min_v_idx = np.argmin(velocities_ms[0:takeoff_idx]) if takeoff_idx > 0 else 0
+        
+        # Trova inizio eccentrica (quando v diventa negativa significativamente)
+        ecc_start_idx = 0
+        for i in range(min_v_idx):
+            if velocities_ms[i] < -0.1: # soglia
+                ecc_start_idx = i
+                break
+        
+        eccentric_time = (self.timestamps[min_v_idx] - self.timestamps[ecc_start_idx]) if min_v_idx > ecc_start_idx else 0
+        concentric_time = (self.timestamps[takeoff_idx] - self.timestamps[min_v_idx]) if min_v_idx < takeoff_idx else 0
+        fall_time = (self.timestamps[landing_idx] - self.timestamps[np.argmax(y_cm_array)])
+        
+        self.final_stats = {
+            'max_height': round(max_height_cm_physic, 2),
+            'flight_time': round(flight_time, 3),
+            'fall_time': round(fall_time, 3),
+            'takeoff_velocity': round(takeoff_velocity, 2), # m/s
+            'estimated_power': round(max_power, 1),
+            'average_force': round(avg_force, 1),
+            'eccentric_time': round(eccentric_time, 3),
+            'concentric_time': round(concentric_time, 3),
+            'contact_time': round(eccentric_time + concentric_time, 3),
+            'jump_detected': True,
+            'body_mass_kg': body_mass_kg,
+            
+            # Chiavi "calculated_" per compatibilità frontend esistente
+            'calculated_average_force': round(avg_force, 1),
+            'calculated_takeoff_velocity': round(takeoff_velocity, 2),
+            'calculated_concentric_time': round(concentric_time, 3),
+            'calculated_eccentric_time': round(eccentric_time, 3),
+            'calculated_contact_time': round(eccentric_time + concentric_time, 3),
+            'calculated_estimated_power': round(max_power, 1),
+        }
+        
+        return self.final_stats
+
+    def reset(self):
+        self.raw_hip_y_pixels = []
+        self.timestamps = []
+        # Non resettiamo baseline_pixel per comodità tra salti
         self.jump_started = False
         self.jump_ended = False
-        self.jump_max_height_frame = None
-        self.jump_fall = None
-        self.takeoff_frame = None
-        self.landing_frame = None
         self.current_frame = 0
-        self.hip_positions = []
-        self.calibration_frames = []
-        self.hip_velocities = []
-        self.contact_start_frame = None
-        self.contact_end_frame = None
-        self.eccentric_start_frame = None
-        self.concentric_start_frame = None
-        self.contact_time = 0.0
-        self.eccentric_time = 0.0
-        self.concentric_time = 0.0
+        self.normalized_trajectory = []
+        self.derived_velocity = []
+        self.final_stats = None
+        self.max_jump_height_cm = 0

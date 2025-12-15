@@ -180,6 +180,8 @@
         <ResultsView 
           results={finalResults}
           on:reset={handleReset}
+          on:exitNoSave={handleReset}
+          on:uploadComplete={handleReset}
         />
       {/if}
     </div>

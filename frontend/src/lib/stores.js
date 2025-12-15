@@ -72,3 +72,38 @@ export function setInputMode(mode) {
     inputMode: mode === 'upload' || mode === 'camera' ? mode : 'none'
   }));
 }
+
+// Store per la sessione di salti
+export const sessionStore = writable({
+  jumps: [],
+  currentJumpIndex: 0,
+  selectedJumpIds: []
+});
+
+export function addJumpToSession(jumpData) {
+  sessionStore.update(state => {
+    const newJump = {
+      ...jumpData,
+      id: state.jumps.length + 1,
+      timestamp: Date.now()
+    };
+    const newJumps = [...state.jumps, newJump];
+    const newSelectedIds = jumpData.jump_detected 
+      ? [...state.selectedJumpIds, newJump.id]
+      : state.selectedJumpIds;
+    
+    return {
+      jumps: newJumps,
+      currentJumpIndex: newJumps.length - 1,
+      selectedJumpIds: newSelectedIds
+    };
+  });
+}
+
+export function clearSession() {
+  sessionStore.set({
+    jumps: [],
+    currentJumpIndex: 0,
+    selectedJumpIds: []
+  });
+}

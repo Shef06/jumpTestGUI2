@@ -1,17 +1,51 @@
 <script>
   import { createEventDispatcher } from 'svelte';
-  import { appState } from './stores.js';
+  import { appState, sessionStore, addJumpToSession } from './stores.js';
   import { getBackendUrl } from './api.js';
+  import SummaryView from './SummaryView.svelte';
   
   export let results;
   
   const dispatch = createEventDispatcher();
   
   // Stato Interfaccia
+  let view = 'analysis'; // 'analysis' | 'summary'
   let activeTab = 'metrics'; // 'metrics' | 'charts'
   let activeGraph = 'trajectory'; // 'trajectory' | 'velocity' | 'combined'
   let isSaving = false;
   let saveMessage = '';
+  let lastAddedJumpHash = null; // Traccia l'ultimo salto aggiunto per evitare duplicati
+  
+  // Aggiungi il salto alla sessione quando i risultati arrivano (solo se non siamo in summary)
+  $: if (results && view === 'analysis') {
+    // Crea un hash univoco per questo salto basato sui dati chiave
+    const jumpHash = `${results.max_height || 0}_${results.flight_time || 0}_${results.timestamp || Date.now()}`;
+    
+    // Se questo è lo stesso salto che abbiamo appena aggiunto, ignora
+    if (jumpHash !== lastAddedJumpHash) {
+      const currentJumps = $sessionStore.jumps;
+      // Verifica se questo salto è già nella sessione (confronta timestamp o dati chiave)
+      const jumpExists = currentJumps.some(j => {
+        // Se hanno lo stesso ID, sono lo stesso salto
+        if (j.id && results.id && j.id === results.id) return true;
+        // Altrimenti confronta dati chiave (altezza, tempo volo, timestamp se disponibile)
+        const jHash = `${j.max_height || 0}_${j.flight_time || 0}_${j.timestamp || 0}`;
+        return jHash === jumpHash || (
+          j.max_height === results.max_height && 
+          j.flight_time === results.flight_time &&
+          Math.abs((j.timestamp || 0) - (results.timestamp || Date.now())) < 1000
+        );
+      });
+      
+      if (!jumpExists) {
+        addJumpToSession(results);
+        lastAddedJumpHash = jumpHash;
+      } else {
+        // Se il salto esiste già, aggiorna l'hash per evitare controlli futuri
+        lastAddedJumpHash = jumpHash;
+      }
+    }
+  }
   
   // Canvas ref
   let canvasRef;
@@ -368,29 +402,38 @@
       drawLine(phases.takeoff, 'rgba(255, 0, 0, 0.6)');
   }
 
-  async function saveResults() {
-    isSaving = true;
-    saveMessage = '';
-    try {
-      const response = await fetch(`${getBackendUrl()}/api/results/save`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({})
-      });
-      const data = await response.json();
-      if (data.success) saveMessage = 'Risultati salvati!';
-      else saveMessage = data.error || 'Errore salvataggio';
-    } catch (e) {
-      saveMessage = 'Errore connessione';
-    } finally {
-      isSaving = false;
-      setTimeout(() => saveMessage = '', 3000);
-    }
+  function handleConcludeSession() {
+    view = 'summary';
+    // Reset l'hash quando si va in summary per evitare problemi quando si torna
+    lastAddedJumpHash = null;
   }
+  
+  function handleBackToAnalysis() {
+    view = 'analysis';
+    // Non resettare l'hash - lascia che il controllo di esistenza gestisca i duplicati
+    // Se results è già nella sessione, lastAddedJumpHash verrà aggiornato dalla reattività
+  }
+  
+  function handleExitNoSave() {
+    dispatch('exitNoSave');
+  }
+  
+  function handleUploadComplete() {
+    dispatch('uploadComplete');
+  }
+  
+  $: currentJump = $sessionStore.jumps[$sessionStore.currentJumpIndex] || results || {};
 </script>
 
+{#if view === 'summary'}
+  <div class="fixed inset-x-0 top-14 bottom-0 z-50 bg-slate-950 overflow-auto">
+    <SummaryView 
+      on:backToAnalysis={handleBackToAnalysis}
+      on:exitNoSave={handleExitNoSave}
+      on:uploadComplete={handleUploadComplete}
+    />
+  </div>
+{:else}
 <div class="bg-slate-900 rounded-2xl border border-slate-800 shadow-xl overflow-hidden relative ring-1 ring-white/5 flex flex-col h-full w-full">
   
   <!-- 1. STICKY HEADER -->
@@ -401,9 +444,13 @@
               <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
             </span>
-            <span class="text-emerald-400 text-xs font-bold uppercase tracking-wider">Analisi Completata</span>
+            <span class="text-emerald-400 text-xs font-bold uppercase tracking-wider">
+              {currentJump?.jump_detected ? 'Analisi Completata' : 'Salto Non Valido'}
+            </span>
          </div>
-         <!-- <span class="text-[10px] text-slate-500 font-mono bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">ID: {results?.id || '8291-X'}</span> -->
+         <span class="text-[10px] text-slate-500 font-mono bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">
+           SESSIONE IN CORSO • {$sessionStore.jumps.length} SALTI
+         </span>
     </div>
     
     <div class="flex border-b border-slate-800 bg-slate-900/50">
@@ -444,7 +491,9 @@
                     <svg class="w-3 h-3 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
                 </div>
                 <div class="flex items-baseline gap-1 mt-auto">
-                    <span class="text-2xl font-bold tracking-tight text-emerald-400">{results.max_height}</span>
+                    <span class="text-2xl font-bold tracking-tight text-emerald-400">
+                      {currentJump?.jump_detected ? (currentJump.max_height || '--') : '--'}
+                    </span>
                     <span class="text-xs text-slate-500 font-medium">cm</span>
                 </div>
             </div>
@@ -456,7 +505,9 @@
                     <svg class="w-3 h-3 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 </div>
                 <div class="flex items-baseline gap-1 mt-auto">
-                    <span class="text-2xl font-bold tracking-tight text-blue-400">{results.flight_time}</span>
+                    <span class="text-2xl font-bold tracking-tight text-blue-400">
+                      {currentJump?.jump_detected ? (currentJump.flight_time || '--') : '--'}
+                    </span>
                     <span class="text-xs text-slate-500 font-medium">s</span>
                 </div>
             </div>
@@ -468,7 +519,9 @@
                     <svg class="w-3 h-3 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
                 </div>
                 <div class="flex items-baseline gap-1 mt-auto">
-                    <span class="text-2xl font-bold tracking-tight text-purple-400">{ (results.calculated_takeoff_velocity || results.takeoff_velocity || 0).toFixed(1) }</span>
+                    <span class="text-2xl font-bold tracking-tight text-purple-400">
+                      {currentJump?.jump_detected ? ((currentJump.calculated_takeoff_velocity || currentJump.takeoff_velocity || 0).toFixed(1)) : '--'}
+                    </span>
                     <span class="text-xs text-slate-500 font-medium">cm/s</span>
                 </div>
             </div>
@@ -480,7 +533,9 @@
                     <svg class="w-3 h-3 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
                 </div>
                 <div class="flex items-baseline gap-1 mt-auto">
-                    <span class="text-2xl font-bold tracking-tight text-amber-400">{ (results.calculated_estimated_power || results.estimated_power || 0).toFixed(0) }</span>
+                    <span class="text-2xl font-bold tracking-tight text-amber-400">
+                      {currentJump?.jump_detected ? ((currentJump.calculated_estimated_power || currentJump.estimated_power || 0).toFixed(0)) : '--'}
+                    </span>
                     <span class="text-xs text-slate-500 font-medium">W</span>
                 </div>
             </div>
@@ -494,15 +549,21 @@
             <div class="p-4 flex flex-col gap-0.5">
                 <div class="flex justify-between items-center py-2 border-b border-slate-700/40 last:border-0">
                     <span class="text-sm text-slate-400 font-medium">Tempo Contatto</span>
-                    <span class="text-sm font-mono font-bold text-slate-200">{ (results.calculated_contact_time || results.contact_time || 0).toFixed(3) } s</span>
+                    <span class="text-sm font-mono font-bold text-slate-200">
+                      {currentJump?.jump_detected ? ((currentJump.calculated_contact_time || currentJump.contact_time || 0).toFixed(3)) : '--'} s
+                    </span>
                 </div>
                 <div class="flex justify-between items-center py-2 border-b border-slate-700/40 last:border-0">
                     <span class="text-sm text-slate-400 font-medium">Fase Eccentrica</span>
-                    <span class="text-sm font-mono font-bold text-slate-200">{ (results.calculated_eccentric_time || results.eccentric_time || 0).toFixed(3) } s</span>
+                    <span class="text-sm font-mono font-bold text-slate-200">
+                      {currentJump?.jump_detected ? ((currentJump.calculated_eccentric_time || currentJump.eccentric_time || 0).toFixed(3)) : '--'} s
+                    </span>
                 </div>
                 <div class="flex justify-between items-center py-2 border-b border-slate-700/40 last:border-0">
                     <span class="text-sm text-slate-400 font-medium">Fase Concentrica</span>
-                    <span class="text-sm font-mono font-bold text-slate-200">{ (results.calculated_concentric_time || results.concentric_time || 0).toFixed(3) } s</span>
+                    <span class="text-sm font-mono font-bold text-slate-200">
+                      {currentJump?.jump_detected ? ((currentJump.calculated_concentric_time || currentJump.concentric_time || 0).toFixed(3)) : '--'} s
+                    </span>
                 </div>
             </div>
          </div>
@@ -514,12 +575,14 @@
             <div class="p-4 flex flex-col gap-0.5">
                 <div class="flex justify-between items-center py-2 border-b border-slate-700/40 last:border-0">
                     <span class="text-sm text-slate-400 font-medium">Forza Media</span>
-                    <span class="text-sm font-mono font-bold text-slate-200">{ (results.calculated_average_force || results.average_force || 0).toFixed(1) } N</span>
+                    <span class="text-sm font-mono font-bold text-slate-200">
+                      {currentJump?.jump_detected ? ((currentJump.calculated_average_force || currentJump.average_force || 0).toFixed(1)) : '--'} N
+                    </span>
                 </div>
                 <div class="flex justify-between items-center py-2 border-b border-slate-700/40 last:border-0">
                     <span class="text-sm text-slate-400 font-medium">Salto Valido</span>
-                    <span class={`text-sm font-mono font-bold px-2 py-0.5 rounded ${results.jump_detected ? 'text-emerald-400 bg-emerald-400/10' : 'text-red-400 bg-red-400/10'}`}>
-                        {results.jump_detected ? 'Sì' : 'No'}
+                    <span class={`text-sm font-mono font-bold px-2 py-0.5 rounded ${currentJump?.jump_detected ? 'text-emerald-400 bg-emerald-400/10' : 'text-red-400 bg-red-400/10'}`}>
+                        {currentJump?.jump_detected ? 'Sì' : 'No'}
                     </span>
                 </div>
             </div>
@@ -567,12 +630,11 @@
      {/if}
      <div class="grid grid-cols-2 gap-3">
         <button 
-            on:click={saveResults} 
-            disabled={isSaving}
+            on:click={handleConcludeSession}
             class="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 py-3 rounded-xl text-sm font-semibold transition-all border border-slate-700 hover:border-slate-600 active:scale-[0.98]"
         >
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-            Salva Dati
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+            Concludi Sessione
         </button>
         <button 
             on:click={() => dispatch('reset')}
@@ -584,6 +646,7 @@
      </div>
   </div>
 </div>
+{/if}
 
 <style>
   .custom-scrollbar::-webkit-scrollbar {
