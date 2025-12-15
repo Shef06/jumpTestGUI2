@@ -12,8 +12,8 @@
   let selectedFile = null;
   let isUploading = false;
   let fps = 30;
-  let personHeight = Number(sessionStorage.getItem('playerHeight')) || 192;
-  let bodyMass = Number(sessionStorage.getItem('playerWeight')) || 97;
+  let personHeight = Number(sessionStorage.getItem('playerHeight')) || 174;
+  let bodyMass = Number(sessionStorage.getItem('playerWeight')) || 60;
   let errorMessage = '';
   let isCalibrating = false;
   let isAnalyzing = false;

@@ -14,36 +14,35 @@
   let activeGraph = 'trajectory'; // 'trajectory' | 'velocity' | 'combined'
   let isSaving = false;
   let saveMessage = '';
-  let lastAddedJumpHash = null; // Traccia l'ultimo salto aggiunto per evitare duplicati
+  let processedResultsId = null; // Traccia l'ID dell'ultimo risultato processato per evitare duplicati
   
-  // Aggiungi il salto alla sessione quando i risultati arrivano (solo se non siamo in summary)
-  $: if (results && view === 'analysis') {
-    // Crea un hash univoco per questo salto basato sui dati chiave
-    const jumpHash = `${results.max_height || 0}_${results.flight_time || 0}_${results.timestamp || Date.now()}`;
+  // Aggiungi il salto alla sessione quando i risultati arrivano (una sola volta per ogni nuovo risultato)
+  $: if (results) {
+    // Crea un identificatore univoco per questo risultato
+    const resultsId = results.id || `${results.max_height || 0}_${results.flight_time || 0}_${results.timestamp || Date.now()}`;
     
-    // Se questo è lo stesso salto che abbiamo appena aggiunto, ignora
-    if (jumpHash !== lastAddedJumpHash) {
+    // Se questo è un nuovo risultato (non ancora processato), aggiungilo alla sessione
+    if (resultsId !== processedResultsId) {
       const currentJumps = $sessionStore.jumps;
-      // Verifica se questo salto è già nella sessione (confronta timestamp o dati chiave)
+      // Verifica se questo salto è già nella sessione
       const jumpExists = currentJumps.some(j => {
         // Se hanno lo stesso ID, sono lo stesso salto
         if (j.id && results.id && j.id === results.id) return true;
         // Altrimenti confronta dati chiave (altezza, tempo volo, timestamp se disponibile)
-        const jHash = `${j.max_height || 0}_${j.flight_time || 0}_${j.timestamp || 0}`;
-        return jHash === jumpHash || (
+        return (
           j.max_height === results.max_height && 
           j.flight_time === results.flight_time &&
           Math.abs((j.timestamp || 0) - (results.timestamp || Date.now())) < 1000
         );
       });
       
+      // Aggiungi solo se non esiste già nella sessione
       if (!jumpExists) {
         addJumpToSession(results);
-        lastAddedJumpHash = jumpHash;
-      } else {
-        // Se il salto esiste già, aggiorna l'hash per evitare controlli futuri
-        lastAddedJumpHash = jumpHash;
       }
+      
+      // Marca questo risultato come processato
+      processedResultsId = resultsId;
     }
   }
   
@@ -404,14 +403,12 @@
 
   function handleConcludeSession() {
     view = 'summary';
-    // Reset l'hash quando si va in summary per evitare problemi quando si torna
-    lastAddedJumpHash = null;
+    // Non resettare processedResultsId - mantiene traccia del salto già aggiunto
   }
   
   function handleBackToAnalysis() {
     view = 'analysis';
-    // Non resettare l'hash - lascia che il controllo di esistenza gestisca i duplicati
-    // Se results è già nella sessione, lastAddedJumpHash verrà aggiornato dalla reattività
+    // Non resettare processedResultsId - il salto è già nella sessione
   }
   
   function handleExitNoSave() {
