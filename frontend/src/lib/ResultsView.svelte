@@ -18,30 +18,43 @@
   
   // Aggiungi il salto alla sessione quando i risultati arrivano (una sola volta per ogni nuovo risultato)
   $: if (results) {
-    // Crea un identificatore univoco per questo risultato
-    const resultsId = results.id || `${results.max_height || 0}_${results.flight_time || 0}_${results.timestamp || Date.now()}`;
-    
-    // Se questo è un nuovo risultato (non ancora processato), aggiungilo alla sessione
+    // Crea un identificatore stabile per questo risultato:
+    // - preferisci results.id se presente
+    // - altrimenti usa il timestamp se fornito dal backend
+    // - altrimenti usa altezza + tempo di volo (senza Date.now() che cambierebbe ad ogni reazione)
+    const resultsId =
+      results.id ??
+      results.timestamp ??
+      `${results.max_height || 0}_${results.flight_time || 0}`;
+
+    // Se questo è un nuovo risultato (non ancora processato), prova ad aggiungerlo alla sessione
     if (resultsId !== processedResultsId) {
       const currentJumps = $sessionStore.jumps;
-      // Verifica se questo salto è già nella sessione
+
       const jumpExists = currentJumps.some(j => {
-        // Se hanno lo stesso ID, sono lo stesso salto
+        // Stesso ID → stesso salto
         if (j.id && results.id && j.id === results.id) return true;
-        // Altrimenti confronta dati chiave (altezza, tempo volo, timestamp se disponibile)
-        return (
-          j.max_height === results.max_height && 
-          j.flight_time === results.flight_time &&
-          Math.abs((j.timestamp || 0) - (results.timestamp || Date.now())) < 1000
-        );
+
+        // Stessi dati principali (altezza + tempo volo)
+        const sameMainMetrics =
+          j.max_height === results.max_height &&
+          j.flight_time === results.flight_time;
+
+        // Se abbiamo timestamp su entrambi, controlla che siano molto vicini
+        const hasTimestamps = j.timestamp != null && results.timestamp != null;
+        const closeInTime =
+          hasTimestamps &&
+          Math.abs(j.timestamp - results.timestamp) < 1000; // 1s
+
+        return sameMainMetrics && (closeInTime || !hasTimestamps);
       });
-      
+
       // Aggiungi solo se non esiste già nella sessione
       if (!jumpExists) {
         addJumpToSession(results);
       }
-      
-      // Marca questo risultato come processato
+
+      // Marca questo risultato come processato (blocca ri-aggiunte su semplici cambi della sessione)
       processedResultsId = resultsId;
     }
   }
