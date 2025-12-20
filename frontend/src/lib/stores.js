@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import { api } from './api.js';
 
 export const appState = writable({
   isAnalyzing: false,
@@ -80,9 +81,10 @@ export const sessionStore = writable({
   selectedJumpIds: []
 });
 
-export function addJumpToSession(jumpData) {
+export async function addJumpToSession(jumpData) {
+  let newJump;
   sessionStore.update(state => {
-    const newJump = {
+    newJump = {
       ...jumpData,
       id: state.jumps.length + 1,
       timestamp: Date.now()
@@ -98,6 +100,27 @@ export function addJumpToSession(jumpData) {
       selectedJumpIds: newSelectedIds
     };
   });
+  
+  // Salva automaticamente quando viene aggiunto un salto
+  if (newJump && newJump.jump_detected) {
+    const testId = typeof window !== 'undefined' ? sessionStorage.getItem('testId') : null;
+    if (testId) {
+      const jumpTestId = `${testId}_jump_${newJump.id}`;
+      try {
+        await api.saveResults(jumpTestId, {
+          results: newJump,
+          trajectory: jumpData.trajectory || [],
+          velocity: jumpData.velocity || [],
+          settings: {
+            mass: jumpData.body_mass_kg || 75,
+            fps: jumpData.fps || 30
+          }
+        });
+      } catch (error) {
+        console.error('Errore nel salvataggio automatico:', error);
+      }
+    }
+  }
 }
 
 export function clearSession() {

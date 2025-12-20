@@ -27,7 +27,7 @@
 
   // Player data state (placeholder per future integrazioni)
   let playerId = 1;
-  let sessionId = '';
+  let testId = sessionStorage.getItem('testId');
   
   // --- Gestione File & Upload (Step 1) ---
   async function handleFileSelect(event) {

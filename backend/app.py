@@ -373,25 +373,44 @@ def analysis_status():
 
 @app.route('/api/results/save', methods=['POST'])
 def save_results():
-    # Salva i risultati calcolati in JSON
-    final = get_state('final_results')
-    if not final: return jsonify({'success': False, 'error': 'Nessun risultato'})
+    # Ottieni testId e dati opzionali dal body della richiesta
+    data_request = request.json or {}
+    test_id = data_request.get('testId')
+    if not test_id:
+        return jsonify({'success': False, 'error': 'testId richiesto'})
     
-    save_dir = os.path.expanduser('~\\AppData\\Roaming\\Kin.ai\\last_jump')
+    # Se i dati sono forniti nel body, usali; altrimenti usa final_results dallo stato
+    if 'results' in data_request:
+        # Dati forniti dal frontend
+        final = data_request.get('results')
+        trajectory = data_request.get('trajectory', [])
+        velocity = data_request.get('velocity', [])
+        settings = data_request.get('settings', {})
+    else:
+        # Usa dati dallo stato globale (compatibilità con vecchio comportamento)
+        final = get_state('final_results')
+        if not final: return jsonify({'success': False, 'error': 'Nessun risultato'})
+        trajectory = get_state('trajectory_data')
+        velocity = get_state('velocity_data')
+        settings = {'mass': get_state('body_mass_kg'), 'fps': get_state('fps')}
+    
+    # Crea il percorso: %appdata%/Kin.ai/test_results/{testId}
+    save_dir = os.path.expanduser(f'~\\AppData\\Roaming\\Kin.ai\\test_results\\{test_id}')
     os.makedirs(save_dir, exist_ok=True)
     
     data = {
         'timestamp': datetime.now().isoformat(),
+        'testId': test_id,
         'results': final,
-        'trajectory': get_state('trajectory_data'),
-        'velocity': get_state('velocity_data'),
-        'settings': {'mass': get_state('body_mass_kg'), 'fps': get_state('fps')}
+        'trajectory': trajectory,
+        'velocity': velocity,
+        'settings': settings
     }
     
     with open(os.path.join(save_dir, 'results.json'), 'w') as f:
         json.dump(data, f, indent=2)
         
-    return jsonify({'success': True})
+    return jsonify({'success': True, 'path': save_dir})
 
 @app.route('/api/video/info', methods=['GET'])
 def video_info():

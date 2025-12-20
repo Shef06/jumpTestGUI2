@@ -1,15 +1,22 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import { sessionStore } from './stores.js';
-  import { getBackendUrl } from './api.js';
+  import { getBackendUrl, api } from './api.js';
   
   const dispatch = createEventDispatcher();
   
   let isUploading = false;
   let uploadMessage = '';
+  let hasError = false;
   
   $: sessionJumps = $sessionStore.jumps;
   $: selectedJumpIds = $sessionStore.selectedJumpIds;
+  
+  // Resetta l'errore quando vengono selezionati dei salti
+  $: if (selectedJumpIds.length > 0 && hasError) {
+    hasError = false;
+    uploadMessage = '';
+  }
   
   // Calcola il best performer
   $: bestJumpId = sessionJumps.length > 0 
@@ -27,79 +34,99 @@
     ? Math.round(validJumps.reduce((acc, curr) => acc + (curr.calculated_estimated_power || curr.estimated_power || 0), 0) / validJumps.length)
     : 0;
   
-  function handleToggleSelect(jumpId) {
+  async function handleToggleSelect(jumpId) {
+    let isSelected = false;
     sessionStore.update(state => {
       if (state.selectedJumpIds.includes(jumpId)) {
+        isSelected = false;
         return {
           ...state,
           selectedJumpIds: state.selectedJumpIds.filter(id => id !== jumpId)
         };
       } else {
+        isSelected = true;
         return {
           ...state,
           selectedJumpIds: [...state.selectedJumpIds, jumpId]
         };
       }
     });
+    
+    // Salva automaticamente quando viene selezionato/deselezionato un salto
+    await saveJump(jumpId);
   }
   
-  function handleSelectAll() {
+  async function saveJump(jumpId) {
+    const testId = typeof window !== 'undefined' ? sessionStorage.getItem('testId') : null;
+    if (!testId) return;
+    
+    const jump = sessionJumps.find(j => j.id === jumpId);
+    if (!jump || !jump.jump_detected) return;
+    
+    const jumpTestId = `${testId}_jump_${jumpId}`;
+    try {
+      await api.saveResults(jumpTestId, {
+        results: jump,
+        trajectory: jump.trajectory || [],
+        velocity: jump.velocity || [],
+        settings: {
+          mass: jump.body_mass_kg || 75,
+          fps: jump.fps || 30
+        }
+      });
+    } catch (error) {
+      console.error('Errore nel salvataggio automatico:', error);
+    }
+  }
+  
+  async function handleSelectAll() {
+    let newSelectedIds = [];
     sessionStore.update(state => {
       if (state.selectedJumpIds.length === validJumps.length) {
+        newSelectedIds = [];
         return { ...state, selectedJumpIds: [] };
       } else {
-        return { ...state, selectedJumpIds: validJumps.map(j => j.id) };
+        newSelectedIds = validJumps.map(j => j.id);
+        return { ...state, selectedJumpIds: newSelectedIds };
       }
     });
+    
+    // Salva automaticamente tutti i salti selezionati/deselezionati
+    for (const jumpId of newSelectedIds.length > 0 ? newSelectedIds : validJumps.map(j => j.id)) {
+      await saveJump(jumpId);
+    }
   }
   
-  function handleDeselectAll() {
+  async function handleDeselectAll() {
+    const previousSelectedIds = [...selectedJumpIds];
     sessionStore.update(state => ({ ...state, selectedJumpIds: [] }));
+    
+    // Salva automaticamente tutti i salti deselezionati
+    for (const jumpId of previousSelectedIds) {
+      await saveJump(jumpId);
+    }
   }
   
   async function handleUploadNow() {
     if (selectedJumpIds.length === 0) {
+      hasError = true;
       uploadMessage = 'Seleziona almeno un salto';
-      setTimeout(() => uploadMessage = '', 3000);
+      setTimeout(() => {
+        uploadMessage = '';
+        hasError = false;
+      }, 5000);
       return;
     }
     
-    isUploading = true;
-    uploadMessage = '';
-    
-    try {
-      const response = await fetch(`${getBackendUrl()}/api/results/save`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jump_ids: selectedJumpIds })
-      });
-      
-      const data = await response.json();
-      if (data.success) {
-        uploadMessage = 'Upload completato!';
-        setTimeout(() => {
-          dispatch('uploadComplete');
-        }, 1500);
-      } else {
-        uploadMessage = data.error || 'Errore upload';
-      }
-    } catch (e) {
-      uploadMessage = 'Errore connessione';
-    } finally {
-      isUploading = false;
-      setTimeout(() => uploadMessage = '', 3000);
-    }
-  }
-  
-  function handleExitNoSave() {
-    if (confirm("Sei sicuro di voler uscire senza salvare? Tutti i dati della sessione corrente andranno persi.")) {
-      dispatch('exitNoSave');
-    }
+    hasError = false;
+    // Qui andrà la logica di upload
   }
   
   function handleBackToAnalysis() {
     dispatch('backToAnalysis');
   }
+  
+  
 </script>
 
 <div class="min-h-screen w-full flex flex-col bg-slate-900 p-4 md:p-8 animate-in fade-in zoom-in-95 duration-300">
@@ -138,6 +165,21 @@
         </div>
     </div>
   </div>
+
+  <!-- Banner Errore -->
+  {#if hasError && uploadMessage}
+    <div class="mb-6 bg-red-900/30 border-2 border-red-500/50 rounded-xl p-4 flex items-center gap-3 animate-in">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-red-400 flex-shrink-0">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="8" x2="12" y2="12"></line>
+        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+      </svg>
+      <div class="flex-1">
+        <h3 class="text-red-400 font-bold text-lg mb-1">Attenzione</h3>
+        <p class="text-red-300 text-sm">{uploadMessage}</p>
+      </div>
+    </div>
+  {/if}
 
   <!-- Tabella Salti -->
   <div class="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden flex-1 shadow-2xl mb-20">
@@ -264,7 +306,14 @@
     <div class="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
         
         {#if uploadMessage}
-          <div class="text-center text-xs font-medium {uploadMessage.includes('completato') ? 'text-emerald-400' : 'text-red-400'} bg-slate-900/50 py-1 px-3 rounded">
+          <div class="text-center text-sm font-semibold {uploadMessage.includes('completato') ? 'text-emerald-400' : 'text-red-400'} bg-slate-900/80 py-2 px-4 rounded-lg border {uploadMessage.includes('completato') ? 'border-emerald-500/30' : 'border-red-500/50'} flex items-center gap-2 animate-in">
+            {#if !uploadMessage.includes('completato')}
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+            {/if}
             {uploadMessage}
           </div>
         {/if}
@@ -273,7 +322,6 @@
         <button 
             id="exitWithutSavingBtn"
             class="w-full sm:w-auto text-red-400 hover:text-red-300 text-sm font-medium transition-colors px-4 py-2 flex items-center justify-center gap-2 hover:bg-red-500/10 rounded-xl"
-            on:click={handleExitNoSave}
         >
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
@@ -300,9 +348,9 @@
         <!-- Pulsante Upload Adesso (Primario) -->
         <button 
           id="uploadBtn"
-          class="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition-all shadow-lg shadow-indigo-900/50 transform active:scale-95 hover:-translate-y-0.5"
+          class="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold transition-all shadow-lg transform active:scale-95 hover:-translate-y-0.5 {hasError ? 'bg-red-600 hover:bg-red-500 text-white border-2 border-red-400 shadow-red-900/50 animate-pulse' : selectedJumpIds.length === 0 ? 'bg-slate-600 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-900/50'}"
           on:click={handleUploadNow}
-          disabled={isUploading || selectedJumpIds.length === 0}
+          disabled={isUploading}
         >
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>

@@ -51,7 +51,9 @@
 
       // Aggiungi solo se non esiste già nella sessione
       if (!jumpExists) {
-        addJumpToSession(results);
+        addJumpToSession(results).catch(err => {
+          console.error('Errore nell\'aggiunta del salto alla sessione:', err);
+        });
       }
 
       // Marca questo risultato come processato (blocca ri-aggiunte su semplici cambi della sessione)
