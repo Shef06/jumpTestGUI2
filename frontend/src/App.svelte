@@ -28,13 +28,13 @@
         }
       }
 
-      if ($appState.isAnalyzing) {
-        const dataRes = await fetch(`${getBackendUrl()}/api/analysis/data`, { signal: AbortSignal.timeout(1000) });
-        if (dataRes.ok) {
-          const data = await dataRes.json();
-          if (data.realtime) updateRealtimeData(data.realtime, data.trajectory, data.velocity);
-        }
-      }
+      // if ($appState.isAnalyzing) {
+      //   const dataRes = await fetch(`${getBackendUrl()}/api/analysis/data`, { signal: AbortSignal.timeout(1000) });
+      //   if (dataRes.ok) {
+      //     const data = await dataRes.json();
+      //     if (data.realtime) updateRealtimeData(data.realtime, data.trajectory, data.velocity);
+      //   }
+      // }
       if (consecutiveErrors > 0) {
         consecutiveErrors = Math.max(0, consecutiveErrors - 1);
         pollRate = Math.max(150, pollRate - 50);
