@@ -8,7 +8,6 @@ Sistema professionale per l'analisi biomeccanica del salto verticale, completame
 jump-analyzer-pro/
 ├── backend/
 │   ├── app.py                  # Server Flask con API REST
-│   ├── contour.py              # Rilevamento contorni corpo
 │   ├── jump_analyzer.py        # Logica analisi salto
 │   ├── requirements.txt        # Dipendenze Python
 │   └── uploads/                # Directory video caricati

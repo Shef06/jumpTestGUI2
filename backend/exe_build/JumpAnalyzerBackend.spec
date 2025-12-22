@@ -2,9 +2,9 @@
 from PyInstaller.utils.hooks import collect_submodules
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('C:\\Users\\bradi\\Desktop\\jumpTestGUI2\\backend\\contour.py', '.'), ('C:\\Users\\bradi\\Desktop\\jumpTestGUI2\\backend\\jump_analyzer.py', '.')]
+datas = [('C:\\Users\\bradi\\Desktop\\jumpTestGUI2\\backend\\jump_analyzer.py', '.')]
 binaries = []
-hiddenimports = ['flask', 'flask_cors', 'cv2', 'mediapipe', 'numpy', 'werkzeug', 'contour', 'jump_analyzer', 'API_Call', 'Kinai_API']
+hiddenimports = ['flask', 'flask_cors', 'cv2', 'mediapipe', 'numpy', 'werkzeug', 'jump_analyzer', 'API_Call', 'Kinai_API']
 hiddenimports += collect_submodules('mediapipe')
 tmp_ret = collect_all('mediapipe')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]

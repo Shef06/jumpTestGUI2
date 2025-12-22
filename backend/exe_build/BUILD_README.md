@@ -48,8 +48,7 @@ Questa guida spiega come creare un eseguibile standalone del backend Jump Analyz
 ```
 backend/
 ├── app.py                    # Script principale
-├── contour.py                 # Moduli del backend
-├── jump_analyzer.py
+├── jump_analyzer.py          # Moduli del backend
 ├── API_Call.py
 ├── Kinai_API.py
 └── exe_build/                # Cartella per la build

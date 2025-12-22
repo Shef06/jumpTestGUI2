@@ -20,7 +20,6 @@ args = [
     '--name=JumpAnalyzerBackend',  # Nome dell'eseguibile
     '--onefile',  # Crea un singolo file eseguibile
     '--console',  # Mostra la console (cambia in --windowed per nasconderla)
-    f'--add-data={os.path.join(backend_dir, "contour.py")}{separator}.',  # Includi i moduli necessari
     f'--add-data={os.path.join(backend_dir, "jump_analyzer.py")}{separator}.',
     '--hidden-import=flask',
     '--hidden-import=flask_cors',
@@ -28,7 +27,6 @@ args = [
     '--hidden-import=mediapipe',
     '--hidden-import=numpy',
     '--hidden-import=werkzeug',
-    '--hidden-import=contour',
     '--hidden-import=jump_analyzer',
     '--hidden-import=API_Call',
     '--hidden-import=Kinai_API',
