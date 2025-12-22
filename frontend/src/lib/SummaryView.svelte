@@ -57,15 +57,30 @@
   }
   
   async function saveJump(jumpId) {
-    const testId = typeof window !== 'undefined' ? sessionStorage.getItem('testId') : null;
-    if (!testId) return;
+    let testId = typeof window !== 'undefined' ? sessionStorage.getItem('testId') : null;
+    
+    // Genera un testId se non esiste
+    if (!testId && typeof window !== 'undefined') {
+      testId = `test_${Date.now()}`;
+      sessionStorage.setItem('testId', testId);
+      console.log('testId generato automaticamente:', testId);
+    }
+    
+    if (!testId) {
+      console.warn('testId non disponibile, salvataggio saltato per jumpId:', jumpId);
+      return;
+    }
     
     const jump = sessionJumps.find(j => j.id === jumpId);
-    if (!jump || !jump.jump_detected) return;
+    if (!jump || !jump.jump_detected) {
+      console.warn('Salto non trovato o non valido:', jumpId, jump);
+      return;
+    }
     
-    const jumpTestId = `${testId}_jump_${jumpId}`;
+    
     try {
-      await api.saveResults(jumpTestId, {
+      console.log('Salvataggio salto selezionato/deselezionato:', testId, jump);
+      const result = await api.saveResults(testId, {
         results: jump,
         trajectory: jump.trajectory || [],
         velocity: jump.velocity || [],
@@ -74,6 +89,7 @@
           fps: jump.fps || 30
         }
       });
+      console.log('Salvataggio completato:', result);
     } catch (error) {
       console.error('Errore nel salvataggio automatico:', error);
     }

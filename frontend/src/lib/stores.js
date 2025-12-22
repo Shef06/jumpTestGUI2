@@ -103,22 +103,34 @@ export async function addJumpToSession(jumpData) {
   
   // Salva automaticamente quando viene aggiunto un salto
   if (newJump && newJump.jump_detected) {
-    const testId = typeof window !== 'undefined' ? sessionStorage.getItem('testId') : null;
+    let testId = typeof window !== 'undefined' ? sessionStorage.getItem('testId') : null;
+    
+    // Genera un testId se non esiste
+    if (!testId && typeof window !== 'undefined') {
+      testId = `test_${Date.now()}`;
+      sessionStorage.setItem('testId', testId);
+      console.log('testId generato automaticamente:', testId);
+    }
+    
     if (testId) {
       const jumpTestId = `${testId}_jump_${newJump.id}`;
       try {
-        await api.saveResults(jumpTestId, {
+        console.log('Salvataggio automatico salto:', jumpTestId, newJump);
+        const result = await api.saveResults(jumpTestId, {
           results: newJump,
-          trajectory: jumpData.trajectory || [],
-          velocity: jumpData.velocity || [],
+          trajectory: jumpData.trajectory || newJump.trajectory || [],
+          velocity: jumpData.velocity || newJump.velocity || [],
           settings: {
-            mass: jumpData.body_mass_kg || 75,
-            fps: jumpData.fps || 30
+            mass: jumpData.body_mass_kg || newJump.body_mass_kg || 75,
+            fps: jumpData.fps || newJump.fps || 30
           }
         });
+        console.log('Salvataggio completato:', result);
       } catch (error) {
         console.error('Errore nel salvataggio automatico:', error);
       }
+    } else {
+      console.warn('testId non disponibile, salvataggio saltato');
     }
   }
 }
