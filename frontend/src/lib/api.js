@@ -63,9 +63,11 @@ export const api = {
   stopAnalysis() { return jsonFetch('/api/analysis/stop', { method: 'POST' }); },
   videoFrame() { return jsonFetch('/api/video/frame'); },
   analysisData() { return jsonFetch('/api/analysis/data'); },
-  saveResults(testId, jumpData = null) {
+  saveResults(testId, jumpData = null, jumpId = null, action = 'add') {
     const body = { testId };
     if (jumpData) {
+      body.jumpId = jumpId;
+      body.action = action; // 'add' o 'remove'
       body.results = jumpData.results;
       body.trajectory = jumpData.trajectory;
       body.velocity = jumpData.velocity;

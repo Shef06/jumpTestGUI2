@@ -113,10 +113,9 @@ export async function addJumpToSession(jumpData) {
     }
     
     if (testId) {
-      const jumpTestId = `${testId}_jump_${newJump.id}`;
       try {
-        console.log('Salvataggio automatico salto:', jumpTestId, newJump);
-        const result = await api.saveResults(jumpTestId, {
+        console.log('Salvataggio automatico salto:', testId, newJump.id, newJump);
+        const result = await api.saveResults(testId, {
           results: newJump,
           trajectory: jumpData.trajectory || newJump.trajectory || [],
           velocity: jumpData.velocity || newJump.velocity || [],
@@ -124,7 +123,7 @@ export async function addJumpToSession(jumpData) {
             mass: jumpData.body_mass_kg || newJump.body_mass_kg || 75,
             fps: jumpData.fps || newJump.fps || 30
           }
-        });
+        }, newJump.id, 'add');
         console.log('Salvataggio completato:', result);
       } catch (error) {
         console.error('Errore nel salvataggio automatico:', error);

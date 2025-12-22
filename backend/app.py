@@ -383,13 +383,67 @@ def save_results():
     if not test_id:
         return jsonify({'success': False, 'error': 'testId richiesto'})
     
-    # Se i dati sono forniti nel body, usali; altrimenti usa final_results dallo stato
+    # Crea il percorso: %appdata%/Kin.ai/test_results/{testId}
+    save_dir = os.path.expanduser(f'~\\AppData\\Roaming\\Kin.ai\\test_results\\{test_id}')
+    os.makedirs(save_dir, exist_ok=True)
+    json_path = os.path.join(save_dir, 'results.json')
+    
+    # Se i dati sono forniti nel body, gestisci aggiunta/rimozione salto
     if 'results' in data_request:
-        # Dati forniti dal frontend
+        jump_id = data_request.get('jumpId')
+        action = data_request.get('action', 'add')  # 'add' o 'remove'
         final = data_request.get('results')
         trajectory = data_request.get('trajectory', [])
         velocity = data_request.get('velocity', [])
         settings = data_request.get('settings', {})
+        
+        # Carica il file esistente se presente
+        jumps_list = []
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, 'r', encoding='utf-8') as f:
+                    existing_data = json.load(f)
+                    # Supporta sia formato vecchio (singolo salto) che nuovo (array)
+                    if isinstance(existing_data, dict):
+                        if 'jumps' in existing_data:
+                            jumps_list = existing_data.get('jumps', [])
+                        else:
+                            # Formato vecchio: converti in array
+                            if 'results' in existing_data:
+                                jumps_list = [{
+                                    'jumpId': jump_id or 1,
+                                    'results': existing_data.get('results'),
+                                    'trajectory': existing_data.get('trajectory', []),
+                                    'velocity': existing_data.get('velocity', []),
+                                    'settings': existing_data.get('settings', {})
+                                }]
+            except Exception as e:
+                print(f"Errore lettura file esistente: {e}")
+                jumps_list = []
+        
+        # Gestisci aggiunta o rimozione
+        if action == 'add':
+            # Rimuovi il salto se esiste già (per aggiornarlo)
+            jumps_list = [j for j in jumps_list if j.get('jumpId') != jump_id]
+            # Aggiungi il nuovo salto
+            jumps_list.append({
+                'jumpId': jump_id,
+                'results': final,
+                'trajectory': trajectory,
+                'velocity': velocity,
+                'settings': settings
+            })
+        elif action == 'remove':
+            # Rimuovi il salto
+            jumps_list = [j for j in jumps_list if j.get('jumpId') != jump_id]
+        
+        # Prepara i dati finali
+        data = {
+            'timestamp': datetime.now().isoformat(),
+            'testId': test_id,
+            'jumps': jumps_list
+        }
+        
     else:
         # Usa dati dallo stato globale (compatibilità con vecchio comportamento)
         final = get_state('final_results')
@@ -397,24 +451,22 @@ def save_results():
         trajectory = get_state('trajectory_data')
         velocity = get_state('velocity_data')
         settings = {'mass': get_state('body_mass_kg'), 'fps': get_state('fps')}
-    
-    # Crea il percorso: %appdata%/Kin.ai/test_results/{testId}
-    save_dir = os.path.expanduser(f'~\\AppData\\Roaming\\Kin.ai\\test_results\\{test_id}')
-    os.makedirs(save_dir, exist_ok=True)
-    
-    data = {
-        'timestamp': datetime.now().isoformat(),
-        'testId': test_id,
-        'results': final,
-        'trajectory': trajectory,
-        'velocity': velocity,
-        'settings': settings
-    }
-    
-    with open(os.path.join(save_dir, 'results.json'), 'w') as f:
-        json.dump(data, f, indent=2)
         
-    return jsonify({'success': True, 'path': save_dir})
+        # Formato vecchio per compatibilità
+        data = {
+            'timestamp': datetime.now().isoformat(),
+            'testId': test_id,
+            'results': final,
+            'trajectory': trajectory,
+            'velocity': velocity,
+            'settings': settings
+        }
+    
+    # Salva il file
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        
+    return jsonify({'success': True, 'path': save_dir, 'jumps_count': len(data.get('jumps', []))})
 
 @app.route('/api/video/info', methods=['GET'])
 def video_info():

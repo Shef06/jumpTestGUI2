@@ -53,10 +53,10 @@
     });
     
     // Salva automaticamente quando viene selezionato/deselezionato un salto
-    await saveJump(jumpId);
+    await saveJump(jumpId, isSelected);
   }
   
-  async function saveJump(jumpId) {
+  async function saveJump(jumpId, isSelected = true) {
     let testId = typeof window !== 'undefined' ? sessionStorage.getItem('testId') : null;
     
     // Genera un testId se non esiste
@@ -77,9 +77,9 @@
       return;
     }
     
-    
     try {
-      console.log('Salvataggio salto selezionato/deselezionato:', testId, jump);
+      const action = isSelected ? 'add' : 'remove';
+      console.log(`Salvataggio salto ${action}:`, testId, jumpId, jump);
       const result = await api.saveResults(testId, {
         results: jump,
         trajectory: jump.trajectory || [],
@@ -88,7 +88,7 @@
           mass: jump.body_mass_kg || 75,
           fps: jump.fps || 30
         }
-      });
+      }, jumpId, action);
       console.log('Salvataggio completato:', result);
     } catch (error) {
       console.error('Errore nel salvataggio automatico:', error);
@@ -97,19 +97,22 @@
   
   async function handleSelectAll() {
     let newSelectedIds = [];
+    let isSelecting = false;
     sessionStore.update(state => {
       if (state.selectedJumpIds.length === validJumps.length) {
         newSelectedIds = [];
+        isSelecting = false;
         return { ...state, selectedJumpIds: [] };
       } else {
         newSelectedIds = validJumps.map(j => j.id);
+        isSelecting = true;
         return { ...state, selectedJumpIds: newSelectedIds };
       }
     });
     
     // Salva automaticamente tutti i salti selezionati/deselezionati
     for (const jumpId of newSelectedIds.length > 0 ? newSelectedIds : validJumps.map(j => j.id)) {
-      await saveJump(jumpId);
+      await saveJump(jumpId, isSelecting);
     }
   }
   
@@ -119,7 +122,7 @@
     
     // Salva automaticamente tutti i salti deselezionati
     for (const jumpId of previousSelectedIds) {
-      await saveJump(jumpId);
+      await saveJump(jumpId, false);
     }
   }
   
