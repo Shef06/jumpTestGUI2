@@ -3,6 +3,7 @@ build/
 dist/
 *.pyc
 __pycache__/
+frontend/dist/
 
 # File temporanei
 *.tmp
