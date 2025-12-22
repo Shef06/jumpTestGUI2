@@ -3,11 +3,10 @@ Flask Backend Ottimizzato per Jump Analyzer Pro
 Logica: 5-Fasi (Tempo di Volo) - Senza calibrazione altezza utente
 """
 
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 import cv2
 import mediapipe as mp
-import numpy as np
 import time
 import os
 import base64
@@ -15,7 +14,6 @@ from datetime import datetime
 from werkzeug.utils import secure_filename
 import threading
 import json
-from functools import lru_cache
 # Import
 from jump_analyzer import JumpAnalyzer
 
