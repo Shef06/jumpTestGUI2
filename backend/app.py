@@ -6,7 +6,7 @@ Logica: 5-Fasi (Tempo di Volo) - Senza calibrazione altezza utente
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import cv2
-import mediapipe as mp
+# MediaPipe viene caricato lazy solo quando serve (calibration_loop e analysis_loop)
 import time
 import os
 import base64
@@ -189,6 +189,9 @@ def start_calibration():
     return jsonify({'success': True, 'message': 'Acquisizione baseline avviata'})
 
 def calibration_loop():
+    # Lazy loading: carica MediaPipe solo quando serve
+    import mediapipe as mp
+    
     video_path = get_state('video_path')
     cap = cv2.VideoCapture(video_path)
     mp_pose = mp.solutions.pose
@@ -252,6 +255,9 @@ def start_analysis():
 
 def analysis_loop():
     """FASE 1: Raccolta Dati Raw"""
+    # Lazy loading: carica MediaPipe solo quando serve
+    import mediapipe as mp
+    
     cap = cv2.VideoCapture(get_state('video_path'))
     mp_pose = mp.solutions.pose
     mp_drawing = mp.solutions.drawing_utils
