@@ -35,18 +35,19 @@
         // Stesso ID → stesso salto
         if (j.id && results.id && j.id === results.id) return true;
 
-        // Stessi dati principali (altezza + tempo volo)
+        // Stessi dati principali (altezza + tempo volo) E timestamp molto vicini (< 500ms)
+        // Questo evita di considerare duplicati salti con valori identici ma eseguiti in momenti diversi
         const sameMainMetrics =
           j.max_height === results.max_height &&
           j.flight_time === results.flight_time;
 
-        // Se abbiamo timestamp su entrambi, controlla che siano molto vicini
         const hasTimestamps = j.timestamp != null && results.timestamp != null;
         const closeInTime =
           hasTimestamps &&
-          Math.abs(j.timestamp - results.timestamp) < 1000; // 1s
+          Math.abs(j.timestamp - results.timestamp) < 500; // Ridotto a 500ms per essere più rigorosi
 
-        return sameMainMetrics && (closeInTime || !hasTimestamps);
+        // Solo se sono identici E molto vicini temporalmente (o entrambi senza timestamp)
+        return sameMainMetrics && (closeInTime || (!hasTimestamps && sameMainMetrics));
       });
 
       // Aggiungi solo se non esiste già nella sessione

@@ -84,9 +84,15 @@ export const sessionStore = writable({
 export async function addJumpToSession(jumpData) {
   let newJump;
   sessionStore.update(state => {
+    // Genera ID sequenziale univoco: trova il massimo ID esistente e aggiungi 1
+    const maxId = state.jumps.length > 0 
+      ? Math.max(...state.jumps.map(j => typeof j.id === 'number' ? j.id : 0))
+      : 0;
+    const uniqueId = maxId + 1;
+    
     newJump = {
       ...jumpData,
-      id: state.jumps.length + 1,
+      id: uniqueId,
       timestamp: Date.now()
     };
     const newJumps = [...state.jumps, newJump];

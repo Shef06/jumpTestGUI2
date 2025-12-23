@@ -501,7 +501,7 @@
         {/if}
 
         <!-- Real-time Data Card (Matching ResultsView Style) -->
-        <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden shadow-sm">
+        <!-- <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden shadow-sm">
           <div class="px-4 py-2 border-b border-slate-700 bg-slate-800/50 flex justify-between items-center">
             <h3 class="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
                 Metriche Live
@@ -528,7 +528,7 @@
                 <span class="text-lg font-mono font-bold text-amber-400">{($appState.realtimeData?.estimated_power ?? 0)} W</span>
             </div>
           </div>
-        </div>
+        </div> -->
 
         {#if isAnalyzing}
           <div class="grid grid-cols-2 gap-2 pt-2">
