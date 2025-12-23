@@ -113,7 +113,7 @@ export async function addJumpToSession(jumpData) {
     
     // Genera un testId se non esiste
     if (!testId && typeof window !== 'undefined') {
-      testId = `test_${Date.now()}`;
+      testId = `${Date.now()}`;
       sessionStorage.setItem('testId', testId);
       console.log('testId generato automaticamente:', testId);
     }

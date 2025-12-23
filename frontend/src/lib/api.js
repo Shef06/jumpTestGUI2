@@ -80,51 +80,6 @@ export const api = {
     });
   },
   
-  /**
-   * Carica i dati del giocatore dall'API esterna
-   * @param {number} playerId - ID del giocatore
-   * @param {string} sessionId - Session ID per l'autenticazione
-   * @returns {Promise<Object>} Dati del giocatore o errore
-   */
-  async getPlayerData(playerId, sessionId) {
-    try {
-      //document.cookie = `session_id=${sessionId}; path=/`
-      // SCONSIGLIATO PER I COOKIE DI SESSIONE
-      document.cookie = `session_id=${sessionId}; path=/api/players`;
-      const response = await fetch(`http://localhost:5173/api/players/${playerId}`, {
-        method: 'GET',
-        credentials: 'include', // ⭐ manda automaticamente i cookie del dominio
-        headers: {
-          'Accept': '*/*'
-          // ❌ niente header Cookie: il browser lo blocca
-        }
-      });
-  
-      if (!response.ok) {
-        return { success: false, error: `Errore HTTP: ${response.status}` };
-      }
-      
-      const data = await response.json();
-      
-      if (data?.data?.info) {
-        return {
-          success: true,
-          data: {
-            height_cm: data.data.info.height_cm,
-            weight_kg: data.data.info.weight_kg,
-            name: data.data.info.name,
-            surname: data.data.info.surname,
-            position: data.data.info.position
-          }
-        };
-      }
-      
-      return { success: false, error: 'Dati giocatore non validi' };
-    } catch (error) {
-      return { success: false, error: `Errore di connessione: ${error.message}` };
-    }
-  }
-  
 };
 
 
